@@ -8,6 +8,7 @@ import { cn } from '@/lib/cn';
 import { Logo } from '@/components/brand/Logo';
 import { ConfirmModal, IconButton, PageLoader, toast } from '@/components/ui';
 import { ConnectionIndicator, GpsIndicator } from './StatusIndicators';
+import { DriverGpsBridge } from '@/features/driver/components/DriverGpsBridge';
 
 const STATUS_DOT = {
   off: 'bg-slate-400',
@@ -39,7 +40,7 @@ export function DriverLayout() {
   return (
     <div className="flex min-h-dvh flex-col bg-slate-100">
       <header className="sticky top-0 z-30 bg-brand-900 pt-safe text-white shadow-md shadow-brand-950/20">
-        <div className="mx-auto flex h-16 max-w-3xl items-center gap-3 px-3 sm:px-4">
+        <div className="mx-auto flex h-16 max-w-3xl items-center gap-3 px-3 sm:px-4 lg:max-w-6xl">
           <Link to="/fahrer" aria-label="Fahrer-Startseite" className="shrink-0 rounded-xl">
             <Logo variant="mark" className="h-10" />
           </Link>
@@ -67,7 +68,9 @@ export function DriverLayout() {
           />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-safe-4 pt-4">
+      {/* GPS-Teilen während aktiver Tour (läuft auf allen Fahrer-Seiten weiter) + Hinweis bei fehlender Freigabe */}
+      <DriverGpsBridge />
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-safe-4 pt-4 lg:max-w-6xl lg:px-6 lg:pt-6">
         <Suspense fallback={<PageLoader />}>
           <Outlet />
         </Suspense>

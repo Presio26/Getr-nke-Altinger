@@ -1,12 +1,6 @@
-import { Hammer } from 'lucide-react';
-import { EmptyState, PageHeader } from '@/components/ui';
+import { SubscriptionsView } from '@/features/account/components/SubscriptionsView';
 
-/** Platzhalter – wird vom Feature-Team ersetzt. */
-export default function Page() {
-  return (
-    <>
-      <PageHeader title="Daueraufträge" />
-      <EmptyState icon={Hammer} title="Wird gerade gebaut" description="Diese Seite entsteht gerade und ist in Kürze verfügbar." />
-    </>
-  );
+/** Daueraufträge für Geschäftskunden (gleiche Logik wie Abos, B2B-Wording, Rechnung als Standard-Zahlart) */
+export default function StandingOrdersPage() {
+  return <SubscriptionsView variant="b2b" />;
 }

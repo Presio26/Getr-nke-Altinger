@@ -1,12 +1,8 @@
-import { Hammer } from 'lucide-react';
-import { EmptyState, PageHeader } from '@/components/ui';
+import { useRole } from '@/stores/session';
+import { SubscriptionsView } from './components/SubscriptionsView';
 
-/** Platzhalter – wird vom Feature-Team ersetzt. */
-export default function Page() {
-  return (
-    <>
-      <PageHeader title="Abos" />
-      <EmptyState icon={Hammer} title="Wird gerade gebaut" description="Diese Seite entsteht gerade und ist in Kürze verfügbar." />
-    </>
-  );
+/** Abos (Privatkunden); Geschäftskunden sehen hier ihre Daueraufträge */
+export default function SubscriptionsPage() {
+  const role = useRole();
+  return <SubscriptionsView variant={role === 'business' ? 'b2b' : 'b2c'} />;
 }
