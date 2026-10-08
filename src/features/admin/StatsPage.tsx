@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, BarChart3, Download, Euro, Receipt, Recycle, ShoppingBasket, ShoppingCart, Star, Trophy, UserPlus } from 'lucide-react';
 import type { Stats } from '@shared/types';
@@ -11,7 +11,7 @@ import { downloadCsv } from '@/lib/download';
 import { cn } from '@/lib/cn';
 import { Card, CardHeader, EmptyState, ErrorState, Button, PageHeader, SegmentedControl, Skeleton, StatCard, toast } from '@/components/ui';
 import { ProductImage } from '@/components/product';
-import { formatCount, formatPercent, useAdminStats } from './master/lib';
+import { formatCount, formatPercent, useAdminStats, useUrlState } from './master/lib';
 import { StatsSkeleton, StockDot } from './master/ui';
 import { CategoryChart, LegendItem, OrdersByHourChart, RevenueByDayChart, SERIES, ShareBar } from './master/stats/charts';
 
@@ -86,23 +86,14 @@ function exportCsv(stats: Stats) {
 }
 
 export default function StatsPage() {
-  const [params, setParams] = useSearchParams();
+  const { params, set: setUrl } = useUrlState();
   const raw = Number(params.get('tage'));
   const days = (RANGES as readonly number[]).includes(raw) ? raw : 30;
   const { data: stats, isLoading, error, refetch, isFetching, isPlaceholderData } = useAdminStats(days);
   const prev = usePreviousPeriod(days, stats?.ordersTotal);
   const products = useProductMap();
 
-  const setDays = (v: string) =>
-    setParams(
-      (p) => {
-        const n = new URLSearchParams(p);
-        if (v === '30') n.delete('tage');
-        else n.set('tage', v);
-        return n;
-      },
-      { replace: true },
-    );
+  const setDays = (v: string) => setUrl({ tage: v === '30' ? null : v });
 
   const revenueSplit = useMemo(() => {
     if (!stats) return { b2c: 0, b2b: 0 };

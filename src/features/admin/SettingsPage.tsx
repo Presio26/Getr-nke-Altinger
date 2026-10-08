@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useBlocker, useSearchParams } from 'react-router-dom';
+import { useBlocker } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, Clock, FlaskConical, MapPinned, Receipt, RotateCcw, Save, Store, Ticket, Truck, type LucideIcon } from 'lucide-react';
 import type { StoreSettings } from '@shared/types';
@@ -7,6 +7,7 @@ import { api } from '@/api/client';
 import { useBootstrapActions, useSettings } from '@/api/hooks';
 import { cn } from '@/lib/cn';
 import { Button, ConfirmModal, PageHeader, Tabs, errorMessage, toast } from '@/components/ui';
+import { useUrlState } from './master/lib';
 import { draftSignature, fromSettings, toSettings, validateSettingsDraft, type SettingsDraft, type SettingsTab } from './master/settings/settingsDraft';
 import { HoursSection, RulesSection, StoreSection } from './master/settings/GeneralSections';
 import { SlotsSection } from './master/settings/SlotsSection';
@@ -31,18 +32,9 @@ export default function SettingsPage() {
   const settings = useSettings();
   const { update } = useBootstrapActions();
   const qc = useQueryClient();
-  const [params, setParams] = useSearchParams();
+  const { params, set: setUrl } = useUrlState();
   const tab = (TABS.some((t) => t.id === params.get('bereich')) ? params.get('bereich') : 'markt') as SettingsTab;
-  const setTab = (id: string) =>
-    setParams(
-      (p) => {
-        const n = new URLSearchParams(p);
-        if (id === 'markt') n.delete('bereich');
-        else n.set('bereich', id);
-        return n;
-      },
-      { replace: true },
-    );
+  const setTab = (id: string) => setUrl({ bereich: id === 'markt' ? null : id });
 
   const [base, setBase] = useState<StoreSettings>(settings);
   const [draft, setDraft] = useState<SettingsDraft>(() => fromSettings(settings));

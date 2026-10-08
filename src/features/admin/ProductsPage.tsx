@@ -1,5 +1,5 @@
 import { useMemo, useState, type MouseEvent } from 'react';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronRight, Download, EyeOff, Minus, PackageSearch, Plus, Tag } from 'lucide-react';
 import type { Product } from '@shared/types';
@@ -10,6 +10,7 @@ import { api } from '@/api/client';
 import { qk, useCategories, useProducts } from '@/api/hooks';
 import { downloadCsv } from '@/lib/download';
 import { cn } from '@/lib/cn';
+import { useMediaQuery } from '@/lib/hooks';
 import {
   Badge,
   Button,
@@ -31,7 +32,7 @@ import {
   toast,
 } from '@/components/ui';
 import { ProductImage } from '@/components/product';
-import { formatCount, isBelowMinStock, matchesSearch, netFromGross, sortBy, stockLevel, type SortDir } from './master/lib';
+import { formatCount, isBelowMinStock, matchesSearch, netFromGross, sortBy, stockLevel, useUrlState, type SortDir } from './master/lib';
 import { AlertBanner, FilterChip, SearchField, SortTH, StockDot, TableFootnote, TableSkeleton, stockLabel, stockTextClass } from './master/ui';
 import { StockAdjustModal } from './master/products/StockAdjustModal';
 
@@ -153,11 +154,12 @@ function useToggleActive(product: Product) {
 }
 
 export default function ProductsPage() {
+  const wide = useMediaQuery('(min-width: 768px)');
   const { data, isLoading, error, refetch } = useProducts();
   const categories = useCategories();
   const navigate = useNavigate();
   const location = useLocation();
-  const [params, setParams] = useSearchParams();
+  const { params, set: setUrl, reset: resetUrl } = useUrlState();
   const [adjust, setAdjust] = useState<Product | null>(null);
 
   const q = params.get('q') ?? '';
@@ -168,30 +170,11 @@ export default function ProductsPage() {
   const sort = { key: (params.get('sort') as SortKey) || 'name', dir: (params.get('dir') as SortDir) || 'asc' };
   const today = todayString();
 
-  const setParam = (key: string, value: string | null) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (value === null || value === '') next.delete(key);
-        else next.set(key, value);
-        return next;
-      },
-      { replace: true },
-    );
+  const setParam = (key: string, value: string | null) => setUrl({ [key]: value });
   const toggleFlag = (key: string) => setParam(key, params.has(key) ? null : '1');
-  const onSort = (key: SortKey) => {
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        const dir = sort.key === key && sort.dir === 'asc' ? 'desc' : 'asc';
-        next.set('sort', key);
-        next.set('dir', key === sort.key ? dir : key === 'name' || key === 'category' ? 'asc' : 'desc');
-        return next;
-      },
-      { replace: true },
-    );
-  };
-  const resetFilters = () => setParams(new URLSearchParams(), { replace: true });
+  const onSort = (key: SortKey) =>
+    setUrl({ sort: key, dir: key === sort.key ? (sort.dir === 'asc' ? 'desc' : 'asc') : key === 'name' || key === 'category' ? 'asc' : 'desc' });
+  const resetFilters = () => resetUrl();
 
   const catName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
   const products = useMemo(() => data ?? [], [data]);
@@ -346,115 +329,119 @@ export default function ProductsPage() {
       ) : (
         <>
           {/* Tabelle ab Tablet */}
-          <div className="hidden md:block">
-            <Table>
-              <THead>
-                <tr>
-                  <SortTH label="Artikel" sortKey="name" sort={sort} onSort={onSort} />
-                  <SortTH label="Kategorie" sortKey="category" sort={sort} onSort={onSort} className="hidden xl:table-cell" />
-                  <TH className="hidden 2xl:table-cell">Gebinde</TH>
-                  <SortTH label="Preis brutto" sortKey="price" sort={sort} onSort={onSort} align="right" />
-                  <TH className="hidden lg:table-cell">Angebot</TH>
-                  <SortTH label="Bestand" sortKey="stock" sort={sort} onSort={onSort} />
-                  <TH className="text-center">Aktiv</TH>
-                  <TH className="w-8">
-                    <span className="sr-only">Bearbeiten</span>
-                  </TH>
-                </tr>
-              </THead>
-              <TBody>
-                {filtered.map((p) => (
-                  <TR key={p.id} onClick={() => openEdit(p)} className={cn(!p.active && 'bg-slate-50/70')}>
-                    <TD className="py-2.5">
-                      <div className={cn('flex min-w-0 max-w-[24rem] items-center gap-3', !p.active && 'opacity-60')}>
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-50">
-                          <ProductImage product={p} size={44} />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{p.brand}</p>
-                          <p className="truncate font-semibold text-slate-900">{p.name}</p>
-                          <p className="truncate text-xs text-slate-500">
-                            <span className="2xl:hidden">{p.packaging} · </span>
-                            {p.sku}
-                            {p.location ? ` · ${p.location}` : ''}
-                          </p>
+          {wide ? (
+            <div>
+              <Table>
+                <THead>
+                  <tr>
+                    <SortTH label="Artikel" sortKey="name" sort={sort} onSort={onSort} />
+                    <SortTH label="Kategorie" sortKey="category" sort={sort} onSort={onSort} className="hidden xl:table-cell" />
+                    <TH className="hidden 2xl:table-cell">Gebinde</TH>
+                    <SortTH label="Preis brutto" sortKey="price" sort={sort} onSort={onSort} align="right" />
+                    <TH className="hidden lg:table-cell">Angebot</TH>
+                    <SortTH label="Bestand" sortKey="stock" sort={sort} onSort={onSort} />
+                    <TH className="text-center">Aktiv</TH>
+                    <TH className="w-8">
+                      <span className="sr-only">Bearbeiten</span>
+                    </TH>
+                  </tr>
+                </THead>
+                <TBody>
+                  {filtered.map((p) => (
+                    <TR key={p.id} onClick={() => openEdit(p)} className={cn(!p.active && 'bg-slate-50/70')}>
+                      <TD className="py-2.5">
+                        <div className={cn('flex min-w-0 max-w-[24rem] items-center gap-3', !p.active && 'opacity-60')}>
+                          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-50">
+                            <ProductImage product={p} size={44} />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{p.brand}</p>
+                            <p className="truncate font-semibold text-slate-900">{p.name}</p>
+                            <p className="truncate text-xs text-slate-500">
+                              <span className="2xl:hidden">{p.packaging} · </span>
+                              {p.sku}
+                              {p.location ? ` · ${p.location}` : ''}
+                            </p>
+                          </div>
+                          {!p.active ? <Badge tone="neutral">Inaktiv</Badge> : null}
                         </div>
-                        {!p.active ? <Badge tone="neutral">Inaktiv</Badge> : null}
-                      </div>
-                    </TD>
-                    <TD className="hidden xl:table-cell">{catName.get(p.categoryId) ?? '–'}</TD>
-                    <TD className="hidden whitespace-nowrap 2xl:table-cell">{p.packaging}</TD>
-                    <TD className="whitespace-nowrap text-right">
-                      <Money cents={p.priceGross} className="font-semibold text-slate-900" />
-                      <p className="text-xs text-slate-500">{p.isRental ? 'pro Veranstaltung' : basePrice(p, p.priceGross)}</p>
-                    </TD>
-                    <TD className="hidden lg:table-cell">
-                      <OfferCell product={p} today={today} />
-                    </TD>
-                    <TD>
-                      <StockControl product={p} onOpen={() => setAdjust(p)} />
-                    </TD>
-                    <TD className="text-center">
-                      <ActiveSwitch product={p} />
-                    </TD>
-                    <TD className="pl-0 pr-3 text-slate-300">
-                      <ChevronRight size={18} aria-hidden />
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </div>
+                      </TD>
+                      <TD className="hidden xl:table-cell">{catName.get(p.categoryId) ?? '–'}</TD>
+                      <TD className="hidden whitespace-nowrap 2xl:table-cell">{p.packaging}</TD>
+                      <TD className="whitespace-nowrap text-right">
+                        <Money cents={p.priceGross} className="font-semibold text-slate-900" />
+                        <p className="text-xs text-slate-500">{p.isRental ? 'pro Veranstaltung' : basePrice(p, p.priceGross)}</p>
+                      </TD>
+                      <TD className="hidden lg:table-cell">
+                        <OfferCell product={p} today={today} />
+                      </TD>
+                      <TD>
+                        <StockControl product={p} onOpen={() => setAdjust(p)} />
+                      </TD>
+                      <TD className="text-center">
+                        <ActiveSwitch product={p} />
+                      </TD>
+                      <TD className="pl-0 pr-3 text-slate-300">
+                        <ChevronRight size={18} aria-hidden />
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </div>
+          ) : null}
 
           {/* Karten auf dem Handy */}
-          <ul className="space-y-3 md:hidden">
-            {filtered.map((p) => {
-              const level = stockLevel(p);
-              return (
-                <li key={p.id}>
-                  <Card padding="none" className={cn('overflow-hidden', !p.active && 'bg-slate-50')}>
-                    <Link
-                      to={`/admin/sortiment/${encodeURIComponent(p.id)}`}
-                      state={{ from: location.search }}
-                      className="flex items-start gap-3 p-3.5 pb-3"
-                    >
-                      <span className={cn('flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-slate-50', !p.active && 'opacity-60')}>
-                        <ProductImage product={p} size={58} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{p.brand}</p>
-                        <p className="line-clamp-2 font-semibold leading-snug text-slate-900">{p.name}</p>
-                        <p className="mt-0.5 truncate text-xs text-slate-500">
-                          {p.packaging} · {catName.get(p.categoryId)}
-                        </p>
+          {!wide ? (
+            <ul className="space-y-3">
+              {filtered.map((p) => {
+                const level = stockLevel(p);
+                return (
+                  <li key={p.id}>
+                    <Card padding="none" className={cn('overflow-hidden', !p.active && 'bg-slate-50')}>
+                      <Link
+                        to={`/admin/sortiment/${encodeURIComponent(p.id)}`}
+                        state={{ from: location.search }}
+                        className="flex items-start gap-3 p-3.5 pb-3"
+                      >
+                        <span className={cn('flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-slate-50', !p.active && 'opacity-60')}>
+                          <ProductImage product={p} size={58} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{p.brand}</p>
+                          <p className="line-clamp-2 font-semibold leading-snug text-slate-900">{p.name}</p>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                            {p.packaging} · {catName.get(p.categoryId)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+                          <Money cents={p.priceGross} className="font-bold text-slate-900" />
+                          {p.offer && isOfferValid(p.offer, today) ? (
+                            <Badge tone="accent" icon={Tag}>
+                              {formatEuro(p.offer.priceGross)}
+                            </Badge>
+                          ) : null}
+                          {!p.active ? (
+                            <Badge tone="neutral">Inaktiv</Badge>
+                          ) : null}
+                        </div>
+                      </Link>
+                      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3.5 py-2.5">
+                        <div className="min-w-0">
+                          <StockControl product={p} onOpen={() => setAdjust(p)} compact />
+                          <p className={cn('mt-1 text-xs', stockTextClass(level))}>
+                            {stockLabel(level)}
+                            {!p.isRental ? <span className="text-slate-500"> · min. {p.minStock}</span> : null}
+                          </p>
+                        </div>
+                        <ActiveSwitch product={p} />
                       </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1 text-right">
-                        <Money cents={p.priceGross} className="font-bold text-slate-900" />
-                        {p.offer && isOfferValid(p.offer, today) ? (
-                          <Badge tone="accent" icon={Tag}>
-                            {formatEuro(p.offer.priceGross)}
-                          </Badge>
-                        ) : null}
-                        {!p.active ? (
-                          <Badge tone="neutral">Inaktiv</Badge>
-                        ) : null}
-                      </div>
-                    </Link>
-                    <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3.5 py-2.5">
-                      <div className="min-w-0">
-                        <StockControl product={p} onOpen={() => setAdjust(p)} compact />
-                        <p className={cn('mt-1 text-xs', stockTextClass(level))}>
-                          {stockLabel(level)}
-                          {!p.isRental ? <span className="text-slate-500"> · min. {p.minStock}</span> : null}
-                        </p>
-                      </div>
-                      <ActiveSwitch product={p} />
-                    </div>
-                  </Card>
-                </li>
-              );
-            })}
-          </ul>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
           <TableFootnote>
             {filtered.length === products.length ? `${formatCount(products.length)} Artikel` : `${formatCount(filtered.length)} von ${formatCount(products.length)} Artikeln`} · Tippen Sie auf
             den Bestand, um Zugang, Abgang oder Inventur zu buchen.

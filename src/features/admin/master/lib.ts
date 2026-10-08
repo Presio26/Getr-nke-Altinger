@@ -2,6 +2,8 @@
  * Gemeinsame Helfer der Markt-Stammdaten-Seiten (Sortiment, Kunden, Rechnungen, Abos, Statistik, Einstellungen).
  * Abfragen nutzen ausschließlich die Query-Keys aus `qk` – die RealtimeBridge invalidiert sie live.
  */
+import { useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { AdminOrderQuery } from '@shared/api';
 import type { Customer, DepositType, ID, Invoice, Order, Product } from '@shared/types';
@@ -47,6 +49,41 @@ export function useAdminStats(days: number) {
     queryFn: () => api.adminGetStats(days),
     placeholderData: keepPreviousData,
   });
+}
+
+// ───────────────────────────── URL-Zustand (Filter, Reiter) ─────────────────────────────
+
+/**
+ * Suchparameter als Seitenzustand. Änderungen bauen immer auf dem zuletzt gesetzten Stand auf –
+ * auch wenn mehrere Änderungen vor dem nächsten Rendern erfolgen (schnelles Tippen, Klick direkt danach).
+ */
+export function useUrlState() {
+  const [params, setParams] = useSearchParams();
+  const latest = useRef(params);
+  const rendered = useRef(params.toString());
+  const key = params.toString();
+  if (key !== rendered.current) {
+    // Navigation erfolgt (eigene oder von außen) → diesen Stand übernehmen
+    rendered.current = key;
+    latest.current = params;
+  }
+  const set = useCallback(
+    (patch: Record<string, string | null | undefined>) => {
+      const next = new URLSearchParams(latest.current);
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === undefined || v === '') next.delete(k);
+        else next.set(k, v);
+      }
+      latest.current = next;
+      setParams(next, { replace: true });
+    },
+    [setParams],
+  );
+  const reset = useCallback(() => {
+    latest.current = new URLSearchParams();
+    setParams(latest.current, { replace: true });
+  }, [setParams]);
+  return { params, set, reset };
 }
 
 // ───────────────────────────── Zahlen & Eingaben ─────────────────────────────

@@ -1,5 +1,5 @@
 import { useMemo, useState, type MouseEvent, type ReactNode } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Building2, ChevronRight, Clock, Megaphone, Package, Receipt, ShieldCheck, UserPlus, Users, UserX } from 'lucide-react';
 import type { Customer } from '@shared/types';
 import { formatDate, formatEuro, formatRelative } from '@shared/format';
@@ -24,7 +24,7 @@ import {
   TR,
   Tabs,
 } from '@/components/ui';
-import { customerFigures, emptyFigures, formatCount, matchesSearch, sortBy, useAdminAllOrders, useAdminCustomers, useAdminInvoices, type CustomerFigures, type SortDir } from './master/lib';
+import { customerFigures, emptyFigures, formatCount, matchesSearch, sortBy, useUrlState, useAdminAllOrders, useAdminCustomers, useAdminInvoices, type CustomerFigures, type SortDir } from './master/lib';
 import { AlertBanner, SearchField, SortTH, StatsSkeleton, TableFootnote, TableSkeleton } from './master/ui';
 import { CustomerTypeBadges, defaultAddress } from './master/customers/customerUi';
 import { ActivateBusinessModal } from './master/customers/ActivateBusinessModal';
@@ -41,12 +41,13 @@ function Figure({ loading, children, className }: { loading: boolean; children: 
 }
 
 export default function CustomersPage() {
+  const wide = useMediaQuery('(min-width: 768px)');
   const customersQ = useAdminCustomers();
   const ordersQ = useAdminAllOrders();
   const invoicesQ = useAdminInvoices();
   const depositTypes = useDepositTypes();
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
+  const { params, set: setUrl } = useUrlState();
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [activate, setActivate] = useState<Customer | null>(null);
   const xl = useMediaQuery('(min-width: 1280px)');
@@ -54,26 +55,8 @@ export default function CustomersPage() {
   const tab = (params.get('tab') as TabId) || 'alle';
   const q = params.get('q') ?? '';
   const sort = { key: (params.get('sort') as SortKey) || 'name', dir: (params.get('dir') as SortDir) || 'asc' };
-  const setParam = (key: string, value: string | null) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (!value) next.delete(key);
-        else next.set(key, value);
-        return next;
-      },
-      { replace: true },
-    );
-  const onSort = (key: SortKey) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('sort', key);
-        next.set('dir', key === sort.key ? (sort.dir === 'asc' ? 'desc' : 'asc') : key === 'name' ? 'asc' : 'desc');
-        return next;
-      },
-      { replace: true },
-    );
+  const setParam = (key: string, value: string | null) => setUrl({ [key]: value });
+  const onSort = (key: SortKey) => setUrl({ sort: key, dir: key === sort.key ? (sort.dir === 'asc' ? 'desc' : 'asc') : key === 'name' ? 'asc' : 'desc' });
 
   const customers = useMemo(() => customersQ.data ?? [], [customersQ.data]);
   const figuresLoading = ordersQ.isLoading || invoicesQ.isLoading;
@@ -209,150 +192,154 @@ export default function CustomersPage() {
         </Card>
       ) : (
         <>
-          <div className="hidden md:block">
-            <Table className="[&_td:first-child]:pl-4 [&_td]:px-3 [&_th:first-child]:pl-4 [&_th]:px-3">
-              <THead>
-                <tr>
-                  <SortTH label="Kunde" sortKey="name" sort={sort} onSort={onSort} />
-                  <TH className="hidden xl:table-cell">Typ</TH>
-                  <SortTH label="Bestellungen" sortKey="orders" sort={sort} onSort={onSort} align="right" />
-                  <SortTH label="Umsatz" sortKey="revenue" sort={sort} onSort={onSort} align="right" />
-                  <SortTH label="Leergut" sortKey="deposit" sort={sort} onSort={onSort} align="right" className="hidden xl:table-cell" />
-                  <SortTH label="Offene Posten" sortKey="open" sort={sort} onSort={onSort} align="right" />
-                  <TH className="w-8">
-                    <span className="sr-only">Öffnen</span>
-                  </TH>
-                </tr>
-              </THead>
-              <TBody>
-                {filtered.map((c) => {
-                  const f = fig(c);
-                  const a = defaultAddress(c);
-                  const pending = c.b2b?.status === 'pending';
-                  return (
-                    <TR key={c.id} onClick={() => open(c)} className={cn(pending && 'bg-amber-50/70 hover:bg-amber-50')}>
-                      <TD className="py-2.5">
-                        <div className="flex min-w-0 max-w-[15rem] items-center gap-3 xl:max-w-[16rem] 2xl:max-w-[22rem]">
-                          <Avatar name={c.name} size="md" />
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-slate-900">{c.name}</p>
-                            <p className="truncate text-xs text-slate-500">
-                              {a ? `${a.zip} ${a.city}` : c.email}
-                              {c.b2b ? ` · ${c.b2b.customerNumber}` : ''}
-                            </p>
-                            <div className="mt-1 xl:hidden">
-                              <CustomerTypeBadges customer={c} showSegment={false} />
+          {wide ? (
+            <div>
+              <Table className="[&_td:first-child]:pl-4 [&_td]:px-3 [&_th:first-child]:pl-4 [&_th]:px-3">
+                <THead>
+                  <tr>
+                    <SortTH label="Kunde" sortKey="name" sort={sort} onSort={onSort} />
+                    <TH className="hidden xl:table-cell">Typ</TH>
+                    <SortTH label="Bestellungen" sortKey="orders" sort={sort} onSort={onSort} align="right" />
+                    <SortTH label="Umsatz" sortKey="revenue" sort={sort} onSort={onSort} align="right" />
+                    <SortTH label="Leergut" sortKey="deposit" sort={sort} onSort={onSort} align="right" className="hidden xl:table-cell" />
+                    <SortTH label="Offene Posten" sortKey="open" sort={sort} onSort={onSort} align="right" />
+                    <TH className="w-8">
+                      <span className="sr-only">Öffnen</span>
+                    </TH>
+                  </tr>
+                </THead>
+                <TBody>
+                  {filtered.map((c) => {
+                    const f = fig(c);
+                    const a = defaultAddress(c);
+                    const pending = c.b2b?.status === 'pending';
+                    return (
+                      <TR key={c.id} onClick={() => open(c)} className={cn(pending && 'bg-amber-50/70 hover:bg-amber-50')}>
+                        <TD className="py-2.5">
+                          <div className="flex min-w-0 max-w-[15rem] items-center gap-3 xl:max-w-[16rem] 2xl:max-w-[22rem]">
+                            <Avatar name={c.name} size="md" />
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-900">{c.name}</p>
+                              <p className="truncate text-xs text-slate-500">
+                                {a ? `${a.zip} ${a.city}` : c.email}
+                                {c.b2b ? ` · ${c.b2b.customerNumber}` : ''}
+                              </p>
+                              <div className="mt-1 xl:hidden">
+                                <CustomerTypeBadges customer={c} showSegment={false} />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </TD>
-                      <TD className="hidden xl:table-cell">
-                        <CustomerTypeBadges customer={c} />
-                      </TD>
-                      {pending ? (
-                        <TD colSpan={xl ? 5 : 4} className="text-right">
-                          <span onClick={stop} className="inline-flex flex-wrap items-center justify-end gap-3">
-                            <span className="text-sm text-amber-900">Antrag vom {formatDate(c.createdAt, 'short')}</span>
-                            <Button size="sm" variant="success" icon={ShieldCheck} onClick={() => setActivate(c)}>
-                              Freischalten
-                            </Button>
-                          </span>
                         </TD>
-                      ) : (
-                        <>
-                          <TD className="whitespace-nowrap text-right">
-                            <Figure loading={figuresLoading}>
-                              <span className="font-semibold tabular-nums text-slate-900">{f.orders}</span>
-                              {f.lastOrderAt ? <span className="block text-xs text-slate-500">{formatRelative(f.lastOrderAt)}</span> : null}
-                            </Figure>
+                        <TD className="hidden xl:table-cell">
+                          <CustomerTypeBadges customer={c} />
+                        </TD>
+                        {pending ? (
+                          <TD colSpan={xl ? 5 : 4} className="text-right">
+                            <span onClick={stop} className="inline-flex flex-wrap items-center justify-end gap-3">
+                              <span className="text-sm text-amber-900">Antrag vom {formatDate(c.createdAt, 'short')}</span>
+                              <Button size="sm" variant="success" icon={ShieldCheck} onClick={() => setActivate(c)}>
+                                Freischalten
+                              </Button>
+                            </span>
                           </TD>
-                          <TD className="whitespace-nowrap text-right">
-                            <Figure loading={figuresLoading}>
-                              <Money cents={f.revenue} className={f.revenue ? 'font-semibold text-slate-900' : 'text-slate-400'} />
-                            </Figure>
-                          </TD>
-                          <TD className="hidden whitespace-nowrap text-right xl:table-cell">
-                            {f.depositCount ? (
-                              <>
-                                <span className="font-semibold tabular-nums text-slate-900">{f.depositCount} Geb.</span>
-                                <span className="block text-xs text-slate-500">{formatEuro(f.depositValue)}</span>
-                              </>
-                            ) : (
-                              <span className="text-slate-400">–</span>
-                            )}
-                          </TD>
-                          <TD className="whitespace-nowrap text-right">
-                            <Figure loading={figuresLoading}>
-                              {f.openAmount ? (
+                        ) : (
+                          <>
+                            <TD className="whitespace-nowrap text-right">
+                              <Figure loading={figuresLoading}>
+                                <span className="font-semibold tabular-nums text-slate-900">{f.orders}</span>
+                                {f.lastOrderAt ? <span className="block text-xs text-slate-500">{formatRelative(f.lastOrderAt)}</span> : null}
+                              </Figure>
+                            </TD>
+                            <TD className="whitespace-nowrap text-right">
+                              <Figure loading={figuresLoading}>
+                                <Money cents={f.revenue} className={f.revenue ? 'font-semibold text-slate-900' : 'text-slate-400'} />
+                              </Figure>
+                            </TD>
+                            <TD className="hidden whitespace-nowrap text-right xl:table-cell">
+                              {f.depositCount ? (
                                 <>
-                                  <Money cents={f.openAmount} className={cn('font-semibold', f.overdueAmount ? 'text-red-700' : 'text-slate-900')} />
-                                  {f.overdueAmount ? <span className="block text-xs font-medium text-red-600">{formatEuro(f.overdueAmount)} überfällig</span> : null}
+                                  <span className="font-semibold tabular-nums text-slate-900">{f.depositCount} Geb.</span>
+                                  <span className="block text-xs text-slate-500">{formatEuro(f.depositValue)}</span>
                                 </>
                               ) : (
                                 <span className="text-slate-400">–</span>
                               )}
-                            </Figure>
-                          </TD>
-                          <TD className="pl-0 pr-3">
-                            <ChevronRight size={18} aria-hidden className="text-slate-300" />
-                          </TD>
-                        </>
-                      )}
-                    </TR>
-                  );
-                })}
-              </TBody>
-            </Table>
-          </div>
+                            </TD>
+                            <TD className="whitespace-nowrap text-right">
+                              <Figure loading={figuresLoading}>
+                                {f.openAmount ? (
+                                  <>
+                                    <Money cents={f.openAmount} className={cn('font-semibold', f.overdueAmount ? 'text-red-700' : 'text-slate-900')} />
+                                    {f.overdueAmount ? <span className="block text-xs font-medium text-red-600">{formatEuro(f.overdueAmount)} überfällig</span> : null}
+                                  </>
+                                ) : (
+                                  <span className="text-slate-400">–</span>
+                                )}
+                              </Figure>
+                            </TD>
+                            <TD className="pl-0 pr-3">
+                              <ChevronRight size={18} aria-hidden className="text-slate-300" />
+                            </TD>
+                          </>
+                        )}
+                      </TR>
+                    );
+                  })}
+                </TBody>
+              </Table>
+            </div>
+          ) : null}
 
-          <ul className="space-y-3 md:hidden">
-            {filtered.map((c) => {
-              const f = fig(c);
-              const a = defaultAddress(c);
-              const pending = c.b2b?.status === 'pending';
-              return (
-                <li key={c.id}>
-                  <Card padding="none" className={cn('overflow-hidden', pending && 'border-amber-300 bg-amber-50/60')}>
-                    <Link to={`/admin/kunden/${encodeURIComponent(c.id)}`} className="flex items-start gap-3 p-4">
-                      <Avatar name={c.name} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold text-slate-900">{c.name}</p>
-                        <p className="truncate text-sm text-slate-500">{a ? `${a.zip} ${a.city}` : c.email}</p>
-                        <div className="mt-2">
-                          <CustomerTypeBadges customer={c} />
+          {!wide ? (
+            <ul className="space-y-3">
+              {filtered.map((c) => {
+                const f = fig(c);
+                const a = defaultAddress(c);
+                const pending = c.b2b?.status === 'pending';
+                return (
+                  <li key={c.id}>
+                    <Card padding="none" className={cn('overflow-hidden', pending && 'border-amber-300 bg-amber-50/60')}>
+                      <Link to={`/admin/kunden/${encodeURIComponent(c.id)}`} className="flex items-start gap-3 p-4">
+                        <Avatar name={c.name} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-slate-900">{c.name}</p>
+                          <p className="truncate text-sm text-slate-500">{a ? `${a.zip} ${a.city}` : c.email}</p>
+                          <div className="mt-2">
+                            <CustomerTypeBadges customer={c} />
+                          </div>
                         </div>
-                      </div>
-                      <ChevronRight size={18} aria-hidden className="mt-1 shrink-0 text-slate-300" />
-                    </Link>
-                    {pending ? (
-                      <div className="border-t border-amber-200 px-4 py-3">
-                        <Button size="sm" variant="success" icon={ShieldCheck} block onClick={() => setActivate(c)}>
-                          Antrag prüfen & freischalten
-                        </Button>
-                      </div>
-                    ) : (
-                      <dl className="grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100 text-center">
-                        <div className="px-2 py-2.5">
-                          <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Bestell.</dt>
-                          <dd className="font-semibold tabular-nums text-slate-900">{figuresLoading ? '…' : f.orders}</dd>
+                        <ChevronRight size={18} aria-hidden className="mt-1 shrink-0 text-slate-300" />
+                      </Link>
+                      {pending ? (
+                        <div className="border-t border-amber-200 px-4 py-3">
+                          <Button size="sm" variant="success" icon={ShieldCheck} block onClick={() => setActivate(c)}>
+                            Antrag prüfen & freischalten
+                          </Button>
                         </div>
-                        <div className="px-2 py-2.5">
-                          <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Umsatz</dt>
-                          <dd className="font-semibold tabular-nums text-slate-900">{figuresLoading ? '…' : formatEuro(f.revenue)}</dd>
-                        </div>
-                        <div className="px-2 py-2.5">
-                          <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Offen</dt>
-                          <dd className={cn('font-semibold tabular-nums', f.overdueAmount ? 'text-red-700' : f.openAmount ? 'text-slate-900' : 'text-slate-400')}>
-                            {figuresLoading ? '…' : f.openAmount ? formatEuro(f.openAmount) : '–'}
-                          </dd>
-                        </div>
-                      </dl>
-                    )}
-                  </Card>
-                </li>
-              );
-            })}
-          </ul>
+                      ) : (
+                        <dl className="grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100 text-center">
+                          <div className="px-2 py-2.5">
+                            <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Bestell.</dt>
+                            <dd className="font-semibold tabular-nums text-slate-900">{figuresLoading ? '…' : f.orders}</dd>
+                          </div>
+                          <div className="px-2 py-2.5">
+                            <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Umsatz</dt>
+                            <dd className="font-semibold tabular-nums text-slate-900">{figuresLoading ? '…' : formatEuro(f.revenue)}</dd>
+                          </div>
+                          <div className="px-2 py-2.5">
+                            <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Offen</dt>
+                            <dd className={cn('font-semibold tabular-nums', f.overdueAmount ? 'text-red-700' : f.openAmount ? 'text-slate-900' : 'text-slate-400')}>
+                              {figuresLoading ? '…' : f.openAmount ? formatEuro(f.openAmount) : '–'}
+                            </dd>
+                          </div>
+                        </dl>
+                      )}
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
           <TableFootnote>
             {filtered.length === customers.length ? `${formatCount(customers.length)} Kunden` : `${formatCount(filtered.length)} von ${formatCount(customers.length)} Kunden`} · Umsatz = Warenwert
             brutto ohne Pfand, ohne stornierte Bestellungen.

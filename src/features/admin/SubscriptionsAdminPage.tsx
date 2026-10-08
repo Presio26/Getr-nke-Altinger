@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, CalendarRange, CheckCircle2, PauseCircle, PlayCircle, Repeat, Truck, Wallet } from 'lucide-react';
 import type { Customer, Order, Subscription } from '@shared/types';
 import { INTERVAL_LABEL, PAYMENT_METHOD_LABEL, WEEKDAY_LABEL, formatDate, formatEuro, formatSlot } from '@shared/format';
@@ -8,6 +8,7 @@ import { priceProduct } from '@shared/core/pricing';
 import { api } from '@/api/client';
 import { qk, useApiMutation, useDepositTypes, useProductMap } from '@/api/hooks';
 import { cn } from '@/lib/cn';
+import { useMediaQuery } from '@/lib/hooks';
 import {
   Badge,
   Button,
@@ -28,7 +29,7 @@ import {
   TR,
   Tabs,
 } from '@/components/ui';
-import { formatCount, matchesSearch, useAdminCustomers, useAdminSubscriptions } from './master/lib';
+import { formatCount, matchesSearch, useAdminCustomers, useAdminSubscriptions, useUrlState } from './master/lib';
 import { FilterChip, FormSection, SearchField, StatsSkeleton, TableFootnote, TableSkeleton } from './master/ui';
 
 type TabId = 'alle' | 'b2c' | 'b2b';
@@ -47,11 +48,12 @@ function nextText(date: string, today: string): string {
 }
 
 export default function SubscriptionsAdminPage() {
+  const wide = useMediaQuery('(min-width: 768px)');
   const subsQ = useAdminSubscriptions();
   const customersQ = useAdminCustomers();
   const products = useProductMap();
   const depositTypes = useDepositTypes();
-  const [params, setParams] = useSearchParams();
+  const { params, set: setUrl } = useUrlState();
   const today = todayString();
   const tomorrow = addDays(today, 1);
   const [until, setUntil] = useState(tomorrow);
@@ -61,16 +63,7 @@ export default function SubscriptionsAdminPage() {
   const tab = (params.get('tab') as TabId) || 'alle';
   const q = params.get('q') ?? '';
   const onlyActive = params.has('aktiv');
-  const setParam = (key: string, value: string | null) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (!value) next.delete(key);
-        else next.set(key, value);
-        return next;
-      },
-      { replace: true },
-    );
+  const setParam = (key: string, value: string | null) => setUrl({ [key]: value });
 
   const customers = useMemo(() => new Map((customersQ.data ?? []).map((c) => [c.id, c])), [customersQ.data]);
   const subs = useMemo(() => subsQ.data ?? [], [subsQ.data]);
@@ -289,96 +282,100 @@ export default function SubscriptionsAdminPage() {
         </Card>
       ) : (
         <>
-          <div className="hidden md:block">
-            <Table className="[&_td:first-child]:pl-4 [&_td]:px-3 [&_th:first-child]:pl-4 [&_th]:px-3">
-              <THead>
-                <tr>
-                  <TH>Kunde & Abo</TH>
-                  <TH>Rhythmus</TH>
-                  <TH>Nächste Lieferung</TH>
-                  <TH className="hidden xl:table-cell">Zahlart</TH>
-                  <TH className="text-right">Warenwert</TH>
-                  <TH>Status</TH>
-                </tr>
-              </THead>
-              <TBody>
-                {filtered.map((s) => {
-                  const c = customers.get(s.customerId);
-                  return (
-                    <TR key={s.id} className={cn(!s.active && 'bg-slate-50/70')}>
-                      <TD className="py-3">
-                        <div className="max-w-[28rem]">
-                          <p className="flex flex-wrap items-center gap-2">
-                            <Link to={`/admin/kunden/${encodeURIComponent(s.customerId)}`} className="font-semibold text-slate-900 hover:text-brand-700 hover:underline">
-                              {c?.name ?? s.customerId}
-                            </Link>
-                            <Badge tone={c?.type === 'b2b' ? 'brand' : 'neutral'}>{c?.type === 'b2b' ? 'Dauerauftrag' : 'Abo'}</Badge>
+          {wide ? (
+            <div>
+              <Table className="[&_td:first-child]:pl-4 [&_td]:px-3 [&_th:first-child]:pl-4 [&_th]:px-3">
+                <THead>
+                  <tr>
+                    <TH>Kunde & Abo</TH>
+                    <TH>Rhythmus</TH>
+                    <TH>Nächste Lieferung</TH>
+                    <TH className="hidden xl:table-cell">Zahlart</TH>
+                    <TH className="text-right">Warenwert</TH>
+                    <TH>Status</TH>
+                  </tr>
+                </THead>
+                <TBody>
+                  {filtered.map((s) => {
+                    const c = customers.get(s.customerId);
+                    return (
+                      <TR key={s.id} className={cn(!s.active && 'bg-slate-50/70')}>
+                        <TD className="py-3">
+                          <div className="max-w-[28rem]">
+                            <p className="flex flex-wrap items-center gap-2">
+                              <Link to={`/admin/kunden/${encodeURIComponent(s.customerId)}`} className="font-semibold text-slate-900 hover:text-brand-700 hover:underline">
+                                {c?.name ?? s.customerId}
+                              </Link>
+                              <Badge tone={c?.type === 'b2b' ? 'brand' : 'neutral'}>{c?.type === 'b2b' ? 'Dauerauftrag' : 'Abo'}</Badge>
+                            </p>
+                            <p className="text-sm font-medium text-slate-700">„{s.name}“</p>
+                            <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{itemsText(s)}</p>
+                          </div>
+                        </TD>
+                        <TD className="whitespace-nowrap">
+                          <p className="text-slate-900">{capitalize(INTERVAL_LABEL[s.interval])}</p>
+                          <p className="text-xs text-slate-500">
+                            {WEEKDAY_LABEL[s.weekday]} ab {s.slotStart} Uhr
                           </p>
-                          <p className="text-sm font-medium text-slate-700">„{s.name}“</p>
-                          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{itemsText(s)}</p>
+                        </TD>
+                        <TD className="whitespace-nowrap">
+                          <p className="font-medium text-slate-900">{formatDate(s.nextDate, 'medium')}</p>
+                          <p className={cn('text-xs', s.nextDate <= tomorrow && s.active ? 'font-semibold text-accent-700' : 'text-slate-500')}>{nextText(s.nextDate, today)}</p>
+                        </TD>
+                        <TD className="hidden whitespace-nowrap xl:table-cell">
+                          {PAYMENT_METHOD_LABEL[s.paymentMethod]}
+                          {s.autoEmptiesReturn ? <p className="text-xs text-slate-500">Leergut wird mitgenommen</p> : null}
+                        </TD>
+                        <TD className="whitespace-nowrap text-right">
+                          <Money cents={valueOf(s)} className="font-semibold text-slate-900" />
+                          <p className="text-xs text-slate-500">je Lieferung</p>
+                        </TD>
+                        <TD>
+                          <Badge tone={s.active ? 'success' : 'neutral'} icon={s.active ? CheckCircle2 : PauseCircle}>
+                            {s.active ? 'Aktiv' : 'Pausiert'}
+                          </Badge>
+                        </TD>
+                      </TR>
+                    );
+                  })}
+                </TBody>
+              </Table>
+            </div>
+          ) : null}
+          {!wide ? (
+            <ul className="space-y-3">
+              {filtered.map((s) => {
+                const c = customers.get(s.customerId);
+                return (
+                  <li key={s.id}>
+                    <Card padding="sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <Link to={`/admin/kunden/${encodeURIComponent(s.customerId)}`} className="block truncate font-semibold text-slate-900">
+                            {c?.name ?? s.customerId}
+                          </Link>
+                          <p className="text-sm text-slate-600">„{s.name}“</p>
                         </div>
-                      </TD>
-                      <TD className="whitespace-nowrap">
-                        <p className="text-slate-900">{capitalize(INTERVAL_LABEL[s.interval])}</p>
-                        <p className="text-xs text-slate-500">
-                          {WEEKDAY_LABEL[s.weekday]} ab {s.slotStart} Uhr
-                        </p>
-                      </TD>
-                      <TD className="whitespace-nowrap">
-                        <p className="font-medium text-slate-900">{formatDate(s.nextDate, 'medium')}</p>
-                        <p className={cn('text-xs', s.nextDate <= tomorrow && s.active ? 'font-semibold text-accent-700' : 'text-slate-500')}>{nextText(s.nextDate, today)}</p>
-                      </TD>
-                      <TD className="hidden whitespace-nowrap xl:table-cell">
-                        {PAYMENT_METHOD_LABEL[s.paymentMethod]}
-                        {s.autoEmptiesReturn ? <p className="text-xs text-slate-500">Leergut wird mitgenommen</p> : null}
-                      </TD>
-                      <TD className="whitespace-nowrap text-right">
+                        <Badge tone={s.active ? 'success' : 'neutral'}>{s.active ? 'Aktiv' : 'Pausiert'}</Badge>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">{itemsText(s)}</p>
+                      <div className="mt-3 flex items-end justify-between gap-3 border-t border-slate-100 pt-3 text-sm">
+                        <div>
+                          <p className="text-slate-900">
+                            {capitalize(INTERVAL_LABEL[s.interval])} · {WEEKDAY_LABEL[s.weekday]}
+                          </p>
+                          <p className="text-slate-500">
+                            nächste: {formatDate(s.nextDate, 'medium')} ({nextText(s.nextDate, today)})
+                          </p>
+                        </div>
                         <Money cents={valueOf(s)} className="font-semibold text-slate-900" />
-                        <p className="text-xs text-slate-500">je Lieferung</p>
-                      </TD>
-                      <TD>
-                        <Badge tone={s.active ? 'success' : 'neutral'} icon={s.active ? CheckCircle2 : PauseCircle}>
-                          {s.active ? 'Aktiv' : 'Pausiert'}
-                        </Badge>
-                      </TD>
-                    </TR>
-                  );
-                })}
-              </TBody>
-            </Table>
-          </div>
-          <ul className="space-y-3 md:hidden">
-            {filtered.map((s) => {
-              const c = customers.get(s.customerId);
-              return (
-                <li key={s.id}>
-                  <Card padding="sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <Link to={`/admin/kunden/${encodeURIComponent(s.customerId)}`} className="block truncate font-semibold text-slate-900">
-                          {c?.name ?? s.customerId}
-                        </Link>
-                        <p className="text-sm text-slate-600">„{s.name}“</p>
                       </div>
-                      <Badge tone={s.active ? 'success' : 'neutral'}>{s.active ? 'Aktiv' : 'Pausiert'}</Badge>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-500">{itemsText(s)}</p>
-                    <div className="mt-3 flex items-end justify-between gap-3 border-t border-slate-100 pt-3 text-sm">
-                      <div>
-                        <p className="text-slate-900">
-                          {capitalize(INTERVAL_LABEL[s.interval])} · {WEEKDAY_LABEL[s.weekday]}
-                        </p>
-                        <p className="text-slate-500">
-                          nächste: {formatDate(s.nextDate, 'medium')} ({nextText(s.nextDate, today)})
-                        </p>
-                      </div>
-                      <Money cents={valueOf(s)} className="font-semibold text-slate-900" />
-                    </div>
-                  </Card>
-                </li>
-              );
-            })}
-          </ul>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
           <TableFootnote>
             {formatCount(filtered.length)} von {formatCount(subs.length)} · Warenwert brutto je Lieferung zu aktuellen Preisen und Kundenkonditionen, ohne Pfand.
           </TableFootnote>

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Clock, Download, FileStack, FileText, Receipt } from 'lucide-react';
 import type { Invoice, InvoiceStatus } from '@shared/types';
 import { formatDate, formatEuro } from '@shared/format';
 import { addDays, todayString } from '@shared/time';
 import { downloadCsv } from '@/lib/download';
 import { cn } from '@/lib/cn';
+import { useMediaQuery } from '@/lib/hooks';
 import { Button, Card, EmptyState, ErrorState, Money, PageHeader, SegmentedControl, Select, StatCard, Table, TBody, TD, TH, THead, TR, toast } from '@/components/ui';
-import { formatCount, matchesSearch, useAdminAllOrders, useAdminCustomers, useAdminInvoices } from './master/lib';
+import { formatCount, matchesSearch, useAdminAllOrders, useAdminCustomers, useAdminInvoices, useUrlState } from './master/lib';
 import { AlertBanner, SearchField, StatsSkeleton, TableFootnote, TableSkeleton } from './master/ui';
 import { InvoiceStatusBadge, MarkPaidButton, PrintInvoiceButton, dueText } from './master/invoices/invoiceUi';
 import { BillingRunModal, billingCandidates } from './master/invoices/BillingRunModal';
@@ -15,26 +16,18 @@ import { BillingRunModal, billingCandidates } from './master/invoices/BillingRun
 type StatusFilter = 'alle' | InvoiceStatus;
 
 export default function InvoicesAdminPage() {
+  const wide = useMediaQuery('(min-width: 768px)');
   const invoicesQ = useAdminInvoices();
   const ordersQ = useAdminAllOrders();
   const customersQ = useAdminCustomers();
-  const [params, setParams] = useSearchParams();
+  const { params, set: setUrl, reset: resetUrl } = useUrlState();
   const [runOpen, setRunOpen] = useState(false);
   const today = todayString();
 
   const status = (params.get('status') as StatusFilter) || 'alle';
   const customerId = params.get('kunde') ?? '';
   const q = params.get('q') ?? '';
-  const setParam = (key: string, value: string | null) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (!value) next.delete(key);
-        else next.set(key, value);
-        return next;
-      },
-      { replace: true },
-    );
+  const setParam = (key: string, value: string | null) => setUrl({ [key]: value });
 
   const invoices = useMemo(() => invoicesQ.data ?? [], [invoicesQ.data]);
   const candidates = useMemo(() => billingCandidates(customersQ.data ?? [], ordersQ.data ?? []), [customersQ.data, ordersQ.data]);
@@ -195,7 +188,7 @@ export default function InvoicesAdminPage() {
             description={invoices.length ? 'Zu den gewählten Filtern gibt es keine Rechnung.' : 'Starten Sie einen Rechnungslauf, um gelieferte Bestellungen auf Rechnung abzurechnen.'}
             action={
               filtersActive ? (
-                <Button variant="outline" onClick={() => setParams(new URLSearchParams(), { replace: true })}>
+                <Button variant="outline" onClick={resetUrl}>
                   Filter zurücksetzen
                 </Button>
               ) : undefined
@@ -204,99 +197,103 @@ export default function InvoicesAdminPage() {
         </Card>
       ) : (
         <>
-          <div className="hidden md:block">
-            <Table className="[&_td:first-child]:pl-4 [&_td]:px-3 [&_th:first-child]:pl-4 [&_th]:px-3">
-              <THead>
-                <tr>
-                  <TH>Rechnung</TH>
-                  <TH>Kunde</TH>
-                  <TH className="hidden xl:table-cell">Fälligkeit</TH>
-                  <TH className="hidden text-right xl:table-cell">Netto</TH>
-                  <TH className="text-right">Brutto</TH>
-                  <TH>Status</TH>
-                  <TH className="text-right">Aktionen</TH>
-                </tr>
-              </THead>
-              <TBody>
-                {filtered.map((i) => (
-                  <TR key={i.id} className={cn(i.status === 'overdue' && 'bg-red-50/40')}>
-                    <TD>
-                      <p className="whitespace-nowrap font-semibold text-slate-900">{i.number}</p>
-                      <p className="whitespace-nowrap text-xs text-slate-500">
-                        {formatDate(i.date, 'short')} · {i.orderIds.length} {i.orderIds.length === 1 ? 'Lieferung' : 'Lieferungen'}
-                      </p>
-                      <p className={cn('whitespace-nowrap text-xs xl:hidden', i.status === 'overdue' ? 'font-medium text-red-600' : 'text-slate-500')}>{dueText(i, today)}</p>
-                    </TD>
-                    <TD>
-                      <Link to={`/admin/kunden/${encodeURIComponent(i.customerId)}`} className="font-medium text-slate-900 hover:text-brand-700 hover:underline">
-                        {i.customerName}
-                      </Link>
-                    </TD>
-                    <TD className="hidden whitespace-nowrap xl:table-cell">
-                      <p className="text-slate-700">{formatDate(i.dueDate, 'short')}</p>
-                      <p className={cn('text-xs', i.status === 'overdue' ? 'font-medium text-red-600' : 'text-slate-500')}>{dueText(i, today)}</p>
-                    </TD>
-                    <TD className="hidden whitespace-nowrap text-right xl:table-cell">
-                      <Money cents={i.net} />
-                    </TD>
-                    <TD className="whitespace-nowrap text-right">
-                      <Money cents={i.gross} className="font-semibold text-slate-900" />
-                    </TD>
-                    <TD>
-                      <InvoiceStatusBadge status={i.status} />
-                    </TD>
-                    <TD>
-                      <div className="flex items-center justify-end gap-1">
-                        <MarkPaidButton invoice={i} />
-                        <PrintInvoiceButton invoice={i} compact />
-                      </div>
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-              <tfoot className="border-t-2 border-slate-200 bg-slate-50/80 text-sm">
-                <tr>
-                  <td className="px-4 py-3 font-semibold text-slate-700" colSpan={2}>
-                    Summe · {filtered.length} {filtered.length === 1 ? 'Rechnung' : 'Rechnungen'}
-                  </td>
-                  <td className="hidden xl:table-cell" />
-                  <td className="hidden whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-slate-700 xl:table-cell">{formatEuro(sums.net)}</td>
-                  <td className="whitespace-nowrap px-3 py-3 text-right font-bold tabular-nums text-slate-900">{formatEuro(sums.gross)}</td>
-                  <td colSpan={2} />
-                </tr>
-              </tfoot>
-            </Table>
-          </div>
-
-          <ul className="space-y-3 md:hidden">
-            {filtered.map((i) => (
-              <li key={i.id}>
-                <Card padding="sm" className={cn(i.status === 'overdue' && 'border-red-200')}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900">{i.number}</p>
-                      <Link to={`/admin/kunden/${encodeURIComponent(i.customerId)}`} className="block truncate text-sm text-brand-700">
-                        {i.customerName}
-                      </Link>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <Money cents={i.gross} className="font-bold text-slate-900" />
-                      <div className="mt-1">
+          {wide ? (
+            <div>
+              <Table className="[&_td:first-child]:pl-4 [&_td]:px-3 [&_th:first-child]:pl-4 [&_th]:px-3">
+                <THead>
+                  <tr>
+                    <TH>Rechnung</TH>
+                    <TH>Kunde</TH>
+                    <TH className="hidden xl:table-cell">Fälligkeit</TH>
+                    <TH className="hidden text-right xl:table-cell">Netto</TH>
+                    <TH className="text-right">Brutto</TH>
+                    <TH>Status</TH>
+                    <TH className="text-right">Aktionen</TH>
+                  </tr>
+                </THead>
+                <TBody>
+                  {filtered.map((i) => (
+                    <TR key={i.id} className={cn(i.status === 'overdue' && 'bg-red-50/40')}>
+                      <TD>
+                        <p className="whitespace-nowrap font-semibold text-slate-900">{i.number}</p>
+                        <p className="whitespace-nowrap text-xs text-slate-500">
+                          {formatDate(i.date, 'short')} · {i.orderIds.length} {i.orderIds.length === 1 ? 'Lieferung' : 'Lieferungen'}
+                        </p>
+                        <p className={cn('whitespace-nowrap text-xs xl:hidden', i.status === 'overdue' ? 'font-medium text-red-600' : 'text-slate-500')}>{dueText(i, today)}</p>
+                      </TD>
+                      <TD>
+                        <Link to={`/admin/kunden/${encodeURIComponent(i.customerId)}`} className="font-medium text-slate-900 hover:text-brand-700 hover:underline">
+                          {i.customerName}
+                        </Link>
+                      </TD>
+                      <TD className="hidden whitespace-nowrap xl:table-cell">
+                        <p className="text-slate-700">{formatDate(i.dueDate, 'short')}</p>
+                        <p className={cn('text-xs', i.status === 'overdue' ? 'font-medium text-red-600' : 'text-slate-500')}>{dueText(i, today)}</p>
+                      </TD>
+                      <TD className="hidden whitespace-nowrap text-right xl:table-cell">
+                        <Money cents={i.net} />
+                      </TD>
+                      <TD className="whitespace-nowrap text-right">
+                        <Money cents={i.gross} className="font-semibold text-slate-900" />
+                      </TD>
+                      <TD>
                         <InvoiceStatusBadge status={i.status} />
+                      </TD>
+                      <TD>
+                        <div className="flex items-center justify-end gap-1">
+                          <MarkPaidButton invoice={i} />
+                          <PrintInvoiceButton invoice={i} compact />
+                        </div>
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+                <tfoot className="border-t-2 border-slate-200 bg-slate-50/80 text-sm">
+                  <tr>
+                    <td className="px-4 py-3 font-semibold text-slate-700" colSpan={2}>
+                      Summe · {filtered.length} {filtered.length === 1 ? 'Rechnung' : 'Rechnungen'}
+                    </td>
+                    <td className="hidden xl:table-cell" />
+                    <td className="hidden whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-slate-700 xl:table-cell">{formatEuro(sums.net)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-bold tabular-nums text-slate-900">{formatEuro(sums.gross)}</td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </Table>
+            </div>
+          ) : null}
+
+          {!wide ? (
+            <ul className="space-y-3">
+              {filtered.map((i) => (
+                <li key={i.id}>
+                  <Card padding="sm" className={cn(i.status === 'overdue' && 'border-red-200')}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900">{i.number}</p>
+                        <Link to={`/admin/kunden/${encodeURIComponent(i.customerId)}`} className="block truncate text-sm text-brand-700">
+                          {i.customerName}
+                        </Link>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <Money cents={i.gross} className="font-bold text-slate-900" />
+                        <div className="mt-1">
+                          <InvoiceStatusBadge status={i.status} />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <p className={cn('mt-2 text-sm', i.status === 'overdue' ? 'font-medium text-red-600' : 'text-slate-500')}>
-                    {formatDate(i.date, 'short')} · {dueText(i, today)}
-                  </p>
-                  <div className="mt-3 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
-                    <PrintInvoiceButton invoice={i} />
-                    <MarkPaidButton invoice={i} />
-                  </div>
-                </Card>
-              </li>
-            ))}
-          </ul>
+                    <p className={cn('mt-2 text-sm', i.status === 'overdue' ? 'font-medium text-red-600' : 'text-slate-500')}>
+                      {formatDate(i.date, 'short')} · {dueText(i, today)}
+                    </p>
+                    <div className="mt-3 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                      <PrintInvoiceButton invoice={i} />
+                      <MarkPaidButton invoice={i} />
+                    </div>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <TableFootnote>
             {formatCount(filtered.length)} {filtered.length === 1 ? 'Rechnung' : 'Rechnungen'} · netto {formatEuro(sums.net)} · MwSt. {formatEuro(sums.vat)} · brutto {formatEuro(sums.gross)}
           </TableFootnote>

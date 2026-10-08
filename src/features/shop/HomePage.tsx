@@ -492,7 +492,7 @@ export default function HomePage() {
                   </li>
                 ))
               : bestsellers.map((p, i) => (
-                  <li key={p.id} className={cn('flex', i >= 4 && 'hidden sm:flex', i >= 6 && 'sm:hidden lg:flex')}>
+                  <li key={p.id} className={i < 4 ? 'flex' : i < 6 ? 'hidden sm:flex' : 'hidden lg:flex'}>
                     <ProductCard product={p} className="w-full" />
                   </li>
                 ))}
