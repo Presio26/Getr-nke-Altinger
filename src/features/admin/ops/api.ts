@@ -5,7 +5,7 @@
 import { useEffect } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AdminOrderQuery } from '@shared/api';
-import type { DayString, ID, Order, OrderStatus, TourInput, TourWithOrders } from '@shared/types';
+import type { DayString, ID, Order, OrderStatus, TourInput } from '@shared/types';
 import { orderStatusLabel } from '@shared/format';
 import { api } from '@/api/client';
 import { qk, useApiMutation } from '@/api/hooks';

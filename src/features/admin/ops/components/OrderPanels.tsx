@@ -265,7 +265,7 @@ export function FulfillmentCard({ order, driverColor }: { order: Order; driverCo
             ) : (
               <p>Reservierung beginnt, sobald die Ware bereitsteht.</p>
             )}
-            <p className="mt-1 text-slate-500">QR-Inhalt: ALTINGER:{order.id}:{order.pickupCode ?? '…'}</p>
+            <p className="mt-1 text-slate-500">Der Kunde zeigt Code oder QR-Code an der Kasse vor – prüfen unter „Abholungen“.</p>
           </div>
         </div>
       </Card>

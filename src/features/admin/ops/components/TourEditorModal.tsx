@@ -110,7 +110,7 @@ function Editor({ open, onClose, date, drivers, tour, unplanned, preselected, to
       }
     >
       <div className="space-y-5">
-        <fieldset>
+        <fieldset className="min-w-0">
           <legend className="mb-2 text-sm font-medium text-slate-700">Fahrer</legend>
           <div className="grid gap-2 sm:grid-cols-3" role="radiogroup">
             {drivers.map((d) => {
@@ -150,13 +150,14 @@ function Editor({ open, onClose, date, drivers, tour, unplanned, preselected, to
           <Input label="Startzeit" type="time" value={start} onChange={(e) => setStart(e.target.value)} />
         </div>
 
-        <fieldset>
-          <legend className="mb-2 flex w-full items-baseline justify-between gap-3 text-sm font-medium text-slate-700">
+        <fieldset className="min-w-0">
+          <legend className="sr-only">Aufträge</legend>
+          <div className="mb-2 flex items-baseline justify-between gap-3 text-sm font-medium text-slate-700" aria-hidden>
             <span>Aufträge</span>
             <span className="text-xs font-normal text-slate-500">
               {selected.length} ausgewählt · {crates} Gebinde
             </span>
-          </legend>
+          </div>
           {candidates.length ? (
             <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
               {candidates.map((o) => {
@@ -174,7 +175,7 @@ function Editor({ open, onClose, date, drivers, tour, unplanned, preselected, to
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                          <span className="tabular-nums text-slate-500">{o.number}</span>
+                          <span className="shrink-0 whitespace-nowrap tabular-nums text-slate-500">{o.number}</span>
                           <span className="truncate">{o.customerName}</span>
                           <B2BTag type={o.customerType} />
                         </span>
@@ -188,7 +189,11 @@ function Editor({ open, onClose, date, drivers, tour, unplanned, preselected, to
                         </span>
                         <span className="block tabular-nums text-slate-500">{orderCrates(o)} Geb.</span>
                       </span>
-                      {tour?.orders.some((x) => x.id === o.id) ? <Badge tone="brand">in Tour</Badge> : null}
+                      {tour?.orders.some((x) => x.id === o.id) ? (
+                        <span className="hidden sm:inline">
+                          <Badge tone="brand">in Tour</Badge>
+                        </span>
+                      ) : null}
                     </label>
                   </li>
                 );

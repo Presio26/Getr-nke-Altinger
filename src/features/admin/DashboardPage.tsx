@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import type { Order, TourWithOrders } from '@shared/types';
 import { TOUR_STATUS_LABEL, formatDate, formatEuro, formatRelative, formatTime } from '@shared/format';
-import { todayString } from '@shared/time';
+import { berlinParts, todayString } from '@shared/time';
 import { useSettings } from '@/api/hooks';
 import { useNow } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
@@ -52,7 +52,7 @@ const DAYS = 14;
 const ALL_QUERY = {};
 
 function greeting(now: Date): string {
-  const h = Number(new Intl.DateTimeFormat('de-DE', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Europe/Berlin' }).format(now));
+  const h = berlinParts(now).hour;
   if (h < 11) return 'Guten Morgen';
   if (h < 18) return 'Guten Tag';
   return 'Guten Abend';

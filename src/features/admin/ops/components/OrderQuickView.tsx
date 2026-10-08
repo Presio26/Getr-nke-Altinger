@@ -27,14 +27,14 @@ export function OrderQuickView({ order, driver, onClose, now }: { order: Order |
     >
       {order ? (
         <div className="space-y-5">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <OrderStatusBadge status={order.status} fulfillment={order.fulfillment} />
             <span className="inline-flex items-center gap-1.5 text-sm text-slate-600">
               <FulfillmentIcon type={order.fulfillment} size="sm" />
               {FULFILLMENT_LABEL[order.fulfillment]}
             </span>
             <span className="text-sm text-slate-400" title={formatDateTime(order.createdAt)}>
-              · eingegangen {formatRelative(order.createdAt, now)}
+              eingegangen {formatRelative(order.createdAt, now)}
             </span>
           </div>
 

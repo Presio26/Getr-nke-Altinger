@@ -272,7 +272,7 @@ export default function LiveMapPage() {
   }, [drivers]);
 
   return (
-    <div className="-mx-4 -my-5 flex flex-col sm:-mx-6 sm:-my-7 lg:-mx-8 lg:h-[calc(100dvh-4rem-env(safe-area-inset-top))] lg:flex-row">
+    <div className="-mx-4 -my-5 flex flex-col sm:-mx-6 sm:-my-7 lg:-mx-8 lg:h-[calc(100dvh-4rem-1px-env(safe-area-inset-top))] lg:flex-row">
       {/* Karte */}
       <div className="relative h-[58dvh] min-h-80 lg:order-2 lg:h-auto lg:flex-1">
         <BaseMap fitTo={fit} fitPadding={56} maxFitZoom={15} onReady={(m) => (mapRef.current = m)}>
