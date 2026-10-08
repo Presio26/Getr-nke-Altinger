@@ -1,0 +1,31 @@
+# Render Blueprint – Getränke Altinger (Web Service mit Node-Server, Echtzeit und HTTPS)
+#
+# Render → New → Blueprint → dieses Repository auswählen → Apply.
+# Die App ist danach unter https://<name>.onrender.com erreichbar (HTTPS automatisch → GPS auf dem iPhone).
+# Anleitung: docs/DEPLOYMENT.md
+services:
+  - type: web
+    name: getraenke-altinger
+    runtime: node
+    # EU-Rechenzentrum (DSGVO)
+    region: frankfurt
+    # "free" schläft nach ca. 15 Minuten ohne Aufrufe ein (erster Aufruf dauert dann bis zu 1 Minute).
+    # Für die Vorführwoche "starter" wählen.
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DEMO_MODE
+        value: "true"
+      - key: RESEED_STALE
+        value: "true"
+      - key: NODE_VERSION
+        value: "22"
+      # NODE_ENV=production gilt auch beim Build – ohne diese Zeile würde "npm ci" die devDependencies
+      # (TypeScript, Vite, Tailwind) weglassen und "npm run build" schlüge fehl.
+      - key: NPM_CONFIG_INCLUDE
+        value: dev

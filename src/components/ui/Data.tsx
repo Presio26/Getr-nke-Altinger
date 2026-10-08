@@ -193,7 +193,7 @@ export function KeyValue({ items, className }: KeyValueProps) {
 
 export function Table({ className, children, ...rest }: HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-card">
+    <div className="relative overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-card">
       <table className={cn('w-full border-collapse text-left text-sm', className)} {...rest}>
         {children}
       </table>

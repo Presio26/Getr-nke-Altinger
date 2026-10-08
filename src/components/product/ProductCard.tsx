@@ -102,7 +102,10 @@ export const ProductCard = memo(function ProductCard({ product, layout = 'grid',
   const price = usePrice(product, 1);
   const { qty, setQty, onAdd, soldOut, max } = useCartControls(product);
   const href = `/produkt/${product.id}`;
-  const nextTier = price.showNet ? price.price.nextTier : undefined;
+  // nur Staffeln zeigen, die günstiger sind als der aktuelle Preis (Kundenrabatt kann kleine Staffeln schlagen)
+  const nextTier = price.showNet
+    ? [...(product.tierPrices ?? [])].sort((a, b) => a.minQty - b.minQty).find((t) => t.minQty > 1 && t.priceNet < price.displayUnit)
+    : undefined;
   const label = `${product.brand} ${product.name}`;
 
   if (layout === 'row') {
@@ -144,7 +147,7 @@ export const ProductCard = memo(function ProductCard({ product, layout = 'grid',
   }
 
   return (
-    <Card padding="none" className={cn('group relative flex flex-col overflow-hidden transition-shadow duration-200 hover:shadow-raised', className)}>
+    <Card padding="none" className={cn('@container group relative flex flex-col overflow-hidden transition-shadow duration-200 hover:shadow-raised', className)}>
       <Link to={href} className="relative block aspect-[5/4] overflow-hidden" style={{ background: productTint(product) }} aria-label={label} tabIndex={-1}>
         <ProductImage product={product} className="absolute inset-0 p-3 transition-transform duration-300 ease-out group-hover:scale-[1.04] sm:p-4" />
         {soldOut ? <span className="absolute inset-0 bg-white/55" aria-hidden /> : null}
@@ -183,8 +186,9 @@ export const ProductCard = memo(function ProductCard({ product, layout = 'grid',
                 'Vormerken'
               ) : (
                 <>
-                  <span className="sm:hidden">In den Korb</span>
-                  <span className="hidden sm:inline">In den Warenkorb</span>
+                  {/* Beschriftung nach Kartenbreite (Container-Query), nicht nach Bildschirmbreite */}
+                  <span className="@min-[15.5rem]:hidden">In den Korb</span>
+                  <span className="hidden @min-[15.5rem]:inline">In den Warenkorb</span>
                 </>
               )}
             </Button>
