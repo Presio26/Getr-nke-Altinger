@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { io as ioClient, type Socket } from 'socket.io-client';
 import type { ApiErrorBody, CheckoutInput, Customer, Order, Product, Quote, RealtimeEvent, Session, TimeSlot, TourWithOrders } from '../shared/types';
 import { todayString } from '../shared/time';
-import { plzGeocoder, straightLineRouting } from '../shared/core/index';
+import { CORE_VERSION, plzGeocoder, straightLineRouting } from '../shared/core/index';
 import { startServer, type RunningServer, type StartServerOptions } from './index';
 import { roomsForAudience, roomsForUser } from './realtime';
 
@@ -166,6 +166,10 @@ describe('API-Server', () => {
     const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')) as { version: string };
     expect(body).toMatchObject({ ok: true, mode: 'remote', version: pkg.version });
     expect(Number.isNaN(Date.parse(body.time))).toBe(false);
+    // eine Version überall: package.json = Server = Core (Bootstrap)
+    expect(pkg.version).toBe(CORE_VERSION);
+    const boot = await call<{ version: string }>(base, 'getBootstrap');
+    expect(boot.version).toBe(body.version);
   });
 
   it('legt beim ersten Start frische Demo-Daten an und speichert sie', () => {

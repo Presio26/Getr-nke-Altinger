@@ -8,6 +8,7 @@ import { reseedDb } from '../seed';
 import { DEMO_USER_INFO } from '../seed/people';
 import { publicSettings } from '../access';
 
+/** App-Version – gemeinsame Quelle für Server (/api/health), Bootstrap und Oberfläche; muss zu package.json passen */
 export const CORE_VERSION = '1.0.0';
 
 export function demoUsers(e: Engine): DemoUser[] {

@@ -9,16 +9,17 @@ import type {
   Customer,
   EmptiesLine,
   Order,
+  OrderSource,
   OrderStatus,
   PaymentStatus,
   Quote,
   StatusChange,
 } from '../types';
-import { addMinutesIso, berlinDate, isDayString } from '../time';
+import { isDayString } from '../time';
 import { formatDate, formatDateTime, formatEuro, formatTime, orderStatusLabel } from '../format';
 import type { Engine } from './engine';
-import { calculateQuote, DEPOSIT_REFUND_VAT_RATE, vatPart, type QuoteContext } from './pricing';
-import { findSlot, parseSlotId } from './slots';
+import { calculateQuote, recomputeOrderTotals, type QuoteContext } from './pricing';
+import { findSlot, parseSlotId, pickupHoldUntil } from './slots';
 import { emitOrder, emitProduct, notifyAdmin, notifyCustomer } from './notify';
 import { randomPickupCode } from './util';
 import { openAmountForCustomer } from './invoices';
@@ -37,6 +38,10 @@ export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   cancelled: [],
 };
 
+/** Regulärer Ablauf je Lieferart (für mehrstufige Sprünge durch den Markt) */
+export const DELIVERY_CHAIN: OrderStatus[] = ['pending', 'confirmed', 'picking', 'ready', 'out_for_delivery', 'delivered'];
+export const PICKUP_CHAIN: OrderStatus[] = ['pending', 'confirmed', 'picking', 'ready', 'picked_up'];
+
 const DELIVERY_ONLY: OrderStatus[] = ['out_for_delivery', 'delivered', 'failed'];
 const PICKUP_ONLY: OrderStatus[] = ['picked_up'];
 export const FINAL_STATUSES: OrderStatus[] = ['delivered', 'picked_up', 'cancelled'];
@@ -48,6 +53,19 @@ export function canTransition(order: Order, to: OrderStatus): boolean {
   if (order.fulfillment === 'pickup' && DELIVERY_ONLY.includes(to)) return false;
   if (order.fulfillment === 'delivery' && PICKUP_ONLY.includes(to)) return false;
   return true;
+}
+
+/**
+ * Zwischenschritte für einen Sprung nach vorn im regulären Ablauf (ohne Start- und Zielstatus),
+ * z. B. pending → picked_up: ['confirmed', 'picking', 'ready']. null, wenn kein solcher Sprung möglich ist
+ * (direkter Übergang, Rückschritt, Storno/Fehlschlag oder falsche Lieferart).
+ */
+export function intermediateSteps(order: Pick<Order, 'status' | 'fulfillment'>, to: OrderStatus): OrderStatus[] | null {
+  const chain = order.fulfillment === 'pickup' ? PICKUP_CHAIN : DELIVERY_CHAIN;
+  const from = chain.indexOf(order.status);
+  const target = chain.indexOf(to);
+  if (from < 0 || target < 0 || target <= from + 1) return null;
+  return chain.slice(from + 1, target);
 }
 
 export function assertTransition(order: Order, to: OrderStatus): void {
@@ -76,29 +94,69 @@ export interface TransitionOptions {
   driverName?: string;
 }
 
+/** Zwischenstände, die eine unmittelbar folgende Statusmeldung derselben Bestellung ersetzt */
+const SUPERSEDABLE: OrderStatus[] = ['confirmed', 'picking', 'ready'];
+/** Fenster für „unmittelbar“: schrittweise nachgezogene Stufen (z. B. Bestätigt → … → Abgeholt mit einem Klick) */
+export const STATUS_SUPERSEDE_MS = 5_000;
+
+/**
+ * Noch ungelesene Statusmeldungen derselben Bestellung aus den letzten Sekunden entfernen – so bleibt bei
+ * schnell nacheinander gesetzten Stufen nur die Meldung zum Endstatus (der Client lädt die Liste beim
+ * nächsten Ereignis neu, Toasts derselben Bestellung ersetzen sich).
+ */
+function dropSupersededStatusNotes(e: Engine, order: Order, at: Date): void {
+  const link = orderLink(order);
+  const since = at.getTime() - STATUS_SUPERSEDE_MS;
+  const users = new Set(e.db.users.filter((u) => u.customerId === order.customerId).map((u) => u.id));
+  const previous = order.statusHistory.slice(0, -1);
+  const titles = new Set(
+    previous
+      .filter((h) => SUPERSEDABLE.includes(h.status) && Date.parse(h.at) >= since)
+      .map((h) => statusTitle(order, h.status))
+      .filter((t): t is string => !!t),
+  );
+  if (!titles.size) return;
+  e.db.notifications = e.db.notifications.filter(
+    (n) => !(users.has(n.recipient) && !n.read && n.link === link && titles.has(n.title) && Date.parse(n.createdAt) >= since),
+  );
+}
+
+function statusTitle(order: Order, status: OrderStatus): string | undefined {
+  switch (status) {
+    case 'confirmed':
+      return 'Bestellung bestätigt';
+    case 'picking':
+      return 'Ihre Bestellung wird zusammengestellt';
+    case 'ready':
+      return order.fulfillment === 'pickup' ? 'Ihre Bestellung liegt bereit' : 'Ihre Bestellung ist verladen';
+    default:
+      return undefined;
+  }
+}
+
 /** Text der Kunden-Benachrichtigung zu einem Status */
 function statusNotification(e: Engine, order: Order, opts: TransitionOptions): { title: string; body: string; kind: 'order' | 'delivery' } | null {
   const nr = order.number;
   switch (order.status) {
     case 'confirmed':
       return {
-        title: 'Bestellung bestätigt',
+        title: statusTitle(order, 'confirmed')!,
         body: `Ihre Bestellung ${nr} ist bestätigt – ${order.fulfillment === 'delivery' ? 'Lieferung' : 'Abholung'} ${slotText(order.slot)}.`,
         kind: 'order',
       };
     case 'picking':
-      return { title: 'Ihre Bestellung wird zusammengestellt', body: `Wir stellen Ihre Bestellung ${nr} gerade für Sie zusammen.`, kind: 'order' };
+      return { title: statusTitle(order, 'picking')!, body: `Wir stellen Ihre Bestellung ${nr} gerade für Sie zusammen.`, kind: 'order' };
     case 'ready':
       if (order.fulfillment === 'pickup') {
         return {
-          title: 'Ihre Bestellung liegt bereit',
+          title: statusTitle(order, 'ready')!,
           body:
             `Ihre Bestellung ${nr} liegt zur Abholung bereit. Abholcode: ${order.pickupCode ?? '–'}` +
             (order.holdUntil ? ` – reserviert bis ${formatDateTime(order.holdUntil)} Uhr.` : '.'),
           kind: 'order',
         };
       }
-      return { title: 'Ihre Bestellung ist verladen', body: `Ihre Bestellung ${nr} ist verladen und kommt ${slotText(order.slot)}.`, kind: 'delivery' };
+      return { title: statusTitle(order, 'ready')!, body: `Ihre Bestellung ${nr} ist verladen und kommt ${slotText(order.slot)}.`, kind: 'delivery' };
     case 'out_for_delivery': {
       const who = opts.driverName ? opts.driverName.split(' ')[0] : 'Unser Fahrer';
       const eta = order.eta ? ` – voraussichtlich gegen ${formatTime(order.eta)} Uhr` : '';
@@ -147,7 +205,10 @@ export function transitionOrder(e: Engine, order: Order, to: OrderStatus, at: Da
   order.updatedAt = change.at;
   if (!opts.silent) {
     const n = statusNotification(e, order, opts);
-    if (n) notifyCustomer(e, order.customerId, { ...n, link: orderLink(order) }, at);
+    if (n) {
+      dropSupersededStatusNotes(e, order, at);
+      notifyCustomer(e, order.customerId, { ...n, link: orderLink(order) }, at);
+    }
   }
   if (!opts.noEmit) emitOrder(e, order);
 }
@@ -207,10 +268,8 @@ export function applyCompletion(e: Engine, order: Order, collected: EmptiesLine[
   // Leergut-Gutschrift an tatsächlich mitgenommenes Leergut anpassen
   const refund = collected.reduce((s, l) => s + (types.find((t) => t.id === l.depositTypeId && t.returnable)?.amount ?? 0) * l.qty, 0);
   if (refund !== order.totals.depositRefund) {
-    const diff = refund - order.totals.depositRefund;
-    // die Gutschrift mindert das Entgelt → enthaltene MwSt. mit anpassen
-    const vat = Math.round(order.totals.vat - vatPart(diff, DEPOSIT_REFUND_VAT_RATE));
-    order.totals = { ...order.totals, depositRefund: refund, total: order.totals.total - diff, vat };
+    // die Gutschrift mindert das Entgelt → Summen und MwSt.-Aufschlüsselung neu berechnen
+    order.totals = recomputeOrderTotals(order, { depositRefund: refund });
   }
   order.paymentStatus = paymentStatusOnCompletion(order);
   if (!customer) return;
@@ -223,6 +282,8 @@ export function applyCompletion(e: Engine, order: Order, collected: EmptiesLine[
   }
   for (const l of collected) {
     if (!l.qty) continue;
+    // lose Einzelflaschen laufen nicht über das Leergut-Konto
+    if (types.find((t) => t.id === l.depositTypeId)?.loose) continue;
     balance[l.depositTypeId] = Math.max(0, (balance[l.depositTypeId] ?? 0) - l.qty);
   }
   for (const k of Object.keys(balance)) if (!balance[k]) delete balance[k];
@@ -283,9 +344,14 @@ export interface CreateOrderParams {
   address?: Address;
   now: Date;
   by: string;
+  /** Herkunft (Default 'app') */
+  source?: OrderSource;
   subscriptionId?: string;
   /** zusätzliche Statusschritte direkt nach der Anlage, z. B. ['confirmed'] für Abos */
   autoAdvance?: OrderStatus[];
+  /** Auslöser/Notiz der automatischen Statusschritte (Default „Markt“) */
+  autoAdvanceBy?: string;
+  autoAdvanceNote?: string;
 }
 
 /**
@@ -321,6 +387,7 @@ export function createOrder(e: Engine, params: CreateOrderParams): { order: Orde
   const iso = now.toISOString();
   const order: Order = {
     id,
+    source: params.source ?? 'app',
     number,
     customerId: customer.id,
     customerType: customer.type,
@@ -354,13 +421,18 @@ export function createOrder(e: Engine, params: CreateOrderParams): { order: Orde
   if (params.subscriptionId) order.subscriptionId = params.subscriptionId;
   if (input.fulfillment === 'pickup') {
     order.pickupCode = uniquePickupCode(e);
-    order.holdUntil = addMinutesIso(berlinDate(slot.date, slot.end), e.db.settings.pickupHoldHours * 60);
+    order.holdUntil = pickupHoldUntil(e.db.settings, slot.date, slot.end);
   }
 
   e.db.orders.push(order);
   deductStock(e, order, now);
   for (const step of params.autoAdvance ?? []) {
-    transitionOrder(e, order, step, now, { by: 'Markt', silent: true, noEmit: true });
+    transitionOrder(e, order, step, now, {
+      by: params.autoAdvanceBy ?? 'Markt',
+      silent: true,
+      noEmit: true,
+      ...(params.autoAdvanceNote ? { note: params.autoAdvanceNote } : {}),
+    });
   }
   emitOrder(e, order, 'order.created');
   return { order, quote };

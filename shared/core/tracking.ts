@@ -10,7 +10,7 @@ import type { Engine } from './engine';
 import { haversine, polylineLength, projectOnPolyline, sliceFrom, toLatLng } from './geo';
 import { FALLBACK_DETOUR_FACTOR, FALLBACK_SPEED_MS } from './routing';
 import { remainingLegCoords } from './simulator';
-import { estimateStopEtas, isStopDone, isStopOpen, orderPoint, SIM_DWELL_MS, STOP_DWELL_MS } from './tourOps';
+import { estimateStopEtas, isStopDone, isStopOpen, orderPoint, remainingDwellMs, STOP_DWELL_MS, stopDwellMs } from './tourOps';
 
 /** Linienzüge aneinanderhängen (doppelte Verbindungspunkte entfernen) */
 function concat(parts: LatLng[][]): LatLng[] {
@@ -92,7 +92,6 @@ export function buildTracking(e: Engine, order: Order, now: Date, options: Track
   const simulated = !!sim && (sim.running || driver?.position?.simulated === true);
   if (sim && simulated && sim.legIndex <= idx) {
     const factor = sim.running ? Math.max(0.1, sim.speedFactor) : 1;
-    const dwell = sim.running && sim.autoComplete ? SIM_DWELL_MS : STOP_DWELL_MS;
     const cur = legs[sim.legIndex];
     const parts: LatLng[][] = [];
     let remainingS = 0;
@@ -109,11 +108,19 @@ export function buildTracking(e: Engine, order: Order, now: Date, options: Track
       parts.push(legs[i].coords);
       remainingS += legs[i].duration;
     }
+    // Fahrer steht noch am aktuellen Stopp: Rest-Standzeit (manueller Stopp: bis er fertig ist)
     let waitMs = 0;
-    if (sim.dwellUntil && sim.legIndex < idx) waitMs = Math.max(0, Date.parse(sim.dwellUntil) - now.getTime());
+    const atStopNow = !!sim.dwellUntil && sim.legIndex < idx;
+    if (atStopNow) {
+      const here = tour.stops[sim.legIndex];
+      waitMs = here && isStopOpen(here) ? remainingDwellMs(tour, here, now) : Math.max(0, Date.parse(sim.dwellUntil!) - now.getTime());
+    }
     if (staff || sim.legIndex === idx) t.routeToCustomer = concat(parts);
-    const openBefore = tour.stops.slice(sim.legIndex, idx).filter((x) => isStopOpen(x)).length;
-    const extraDwell = Math.max(0, openBefore - (sim.dwellUntil ? 1 : 0)) * dwell;
+    // geplante Standzeiten an den offenen Stopps davor
+    const extraDwell = tour.stops
+      .slice(sim.legIndex + (atStopNow ? 1 : 0), idx)
+      .filter((x) => isStopOpen(x))
+      .reduce((sum, x) => sum + (x.status === 'arrived' ? remainingDwellMs(tour, x, now) : stopDwellMs(tour, x.orderId)), 0);
     info.etaMinutes = minutesCeil((remainingS * 1000) / factor + waitMs + extraDwell);
     return info;
   }
@@ -144,6 +151,11 @@ export function buildTracking(e: Engine, order: Order, now: Date, options: Track
   }
   // Kunden: Restroute erst auf dem Abschnitt zum eigenen Stopp (bzw. Luftlinie ohne Route)
   if (parts.length && (staff || ownOnly)) t.routeToCustomer = concat(parts);
-  info.etaMinutes = minutesCeil((remainingM / Math.max(1, avgSpeed)) * 1000 + stopsBefore * STOP_DWELL_MS);
+  // Standzeiten der offenen Stopps davor – am Stopp „vor Ort“ nur die Rest-Standzeit
+  const dwellBefore = tour.stops
+    .slice(0, idx)
+    .filter(isStopOpen)
+    .reduce((sum, x) => sum + (x.status === 'arrived' ? remainingDwellMs(tour, x, now) : STOP_DWELL_MS), 0);
+  info.etaMinutes = minutesCeil((remainingM / Math.max(1, avgSpeed)) * 1000 + dwellBefore);
   return info;
 }

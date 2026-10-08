@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CreditCard, Mail, Package, Phone, Receipt, ShieldCheck, ShoppingCart, Star, UserPlus, Wallet } from 'lucide-react';
+import { CreditCard, Mail, Package, Phone, PhoneIncoming, Receipt, ShieldCheck, ShoppingCart, Star, UserPlus, Wallet } from 'lucide-react';
 import { formatDate, formatEuro, formatRelative } from '@shared/format';
 import { useDepositTypes } from '@/api/hooks';
 import { Avatar, ButtonLink, Card, ErrorState, Notice, PageHeader, Skeleton, StatCard, Button } from '@/components/ui';
@@ -12,6 +12,7 @@ import { DepositAccountCard } from './master/customers/DepositAccountCard';
 import { AddressesCard, NoteCard, ProfileCard } from './master/customers/CustomerSideCards';
 import { CustomerActivity } from './master/customers/CustomerActivity';
 import { ActivateBusinessModal } from './master/customers/ActivateBusinessModal';
+import { phoneOrderHref } from './ops/components/PhoneOrderLauncher';
 
 export default function CustomerDetailPage() {
   const { customerId } = useParams();
@@ -87,6 +88,9 @@ export default function CustomerDetailPage() {
         }
         actions={
           <>
+            <ButtonLink to={phoneOrderHref(customer.id)} variant="accent" icon={PhoneIncoming}>
+              Telefonbestellung
+            </ButtonLink>
             {customer.phone ? (
               <a
                 href={`tel:${customer.phone.replace(/\s+/g, '')}`}
@@ -133,15 +137,33 @@ export default function CustomerDetailPage() {
         <StatCard
           label="Offene Posten"
           value={formatEuro(figures.openAmount)}
-          hint={figures.overdueAmount ? <span className="font-semibold text-red-600">davon {formatEuro(figures.overdueAmount)} überfällig</span> : figures.openAmount ? 'nichts überfällig' : 'alles bezahlt'}
+          hint={
+            figures.openCount ? (
+              <>
+                {figures.openCount} {figures.openCount === 1 ? 'Rechnung' : 'Rechnungen'}
+                {figures.overdueAmount ? <span className="block font-semibold text-red-600">davon {formatEuro(figures.overdueAmount)} überfällig</span> : ' · nichts überfällig'}
+              </>
+            ) : (
+              'keine offenen Rechnungen'
+            )
+          }
           icon={Receipt}
           tone={figures.overdueAmount ? 'danger' : 'warning'}
         />
         {b2b ? (
           <StatCard
-            label="Kreditlimit"
-            value={formatEuro(b2b.creditLimit)}
-            hint={b2b.creditLimit ? `${formatPercent(Math.min(100, (figures.openAmount / b2b.creditLimit) * 100))} ausgeschöpft · ${b2b.paymentTermsDays} Tage Ziel` : 'kein Limit vereinbart'}
+            label="Kreditrahmen-Auslastung"
+            value={formatEuro(figures.creditUsed)}
+            hint={
+              b2b.creditLimit ? (
+                <>
+                  von {formatEuro(b2b.creditLimit)} ({formatPercent(Math.min(100, (figures.creditUsed / b2b.creditLimit) * 100))})
+                  <span className="block">inkl. {formatEuro(figures.unbilledAmount)} noch nicht abgerechneter Lieferungen</span>
+                </>
+              ) : (
+                'kein Kreditlimit vereinbart'
+              )
+            }
             icon={CreditCard}
             tone="accent"
           />
@@ -158,7 +180,7 @@ export default function CustomerDetailPage() {
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
         <div className="min-w-0 space-y-6">
-          {b2b ? <B2BConditionsCard customer={customer} openAmount={figures.openAmount} /> : null}
+          {b2b ? <B2BConditionsCard customer={customer} openAmount={figures.openAmount} unbilledAmount={figures.unbilledAmount} /> : null}
           <CustomerActivity customer={customer} orders={orders} invoices={invoices} subscriptions={subscriptions} users={users} />
           {!b2b ? <AddressesCard customer={customer} /> : null}
         </div>

@@ -141,10 +141,26 @@ export function driverHandlers(
       const current = findTour(e, tourId);
       const speedFactor = clamp(Number(options?.speedFactor ?? current.simulation?.speedFactor ?? SIM_DEFAULT_SPEED_FACTOR) || SIM_DEFAULT_SPEED_FACTOR, 0.5, 50);
       const autoComplete = options?.autoComplete ?? current.simulation?.autoComplete ?? true;
+      // Aufträge, die der Fahrer trotz automatischer Zustellung selbst abschließt (nur Stopps dieser Tour)
+      let manualOrderIds: string[] | undefined;
+      if (options?.manualOrderIds !== undefined) {
+        if (!Array.isArray(options.manualOrderIds)) throw new ApiError('validation', 'Ungültige Auswahl der manuellen Stopps.');
+        manualOrderIds = [...new Set(options.manualOrderIds.filter((id): id is string => typeof id === 'string'))].filter((id) =>
+          current.stops.some((s) => s.orderId === id),
+        );
+      }
       if (current.status === 'planned') {
         // Simulation vor dem Start setzen, damit ETAs (und die „unterwegs“-Nachricht) den Zeitraffer berücksichtigen
         const previous = current.simulation;
-        current.simulation = { running: true, speedFactor, autoComplete: !!autoComplete, legIndex: 0, progressM: 0, lastTickAt: ctx.now.toISOString() };
+        current.simulation = {
+          running: true,
+          speedFactor,
+          autoComplete: !!autoComplete,
+          legIndex: 0,
+          progressM: 0,
+          lastTickAt: ctx.now.toISOString(),
+          ...(manualOrderIds?.length ? { manualOrderIds } : {}),
+        };
         try {
           startTourOp(e, current, ctx.now, actorLabel(e, user));
         } catch (err) {
@@ -153,7 +169,7 @@ export function driverHandlers(
           throw err;
         }
       }
-      initSimulation(e, current, ctx.now, { speedFactor, autoComplete: !!autoComplete });
+      initSimulation(e, current, ctx.now, { speedFactor, autoComplete: !!autoComplete, ...(manualOrderIds ? { manualOrderIds } : {}) });
       recomputeEtas(e, current, ctx.now, { emitOrders: true });
       emitTour(e, current);
       return current;

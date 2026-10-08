@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn';
 import { CouponField } from './CouponField';
 import { DeliveryProgress } from './DeliveryProgress';
 import type { CartQuoteState } from './useCartQuote';
+import { vatIncludedText, vatSummary } from '@/features/orders/components/TotalsBlock';
 
 /** Ziel und Beschriftung des Kassen-Buttons je nach Rolle */
 export function useCheckoutTarget(): { to: string; label: string; guest: boolean; staff: boolean } {
@@ -22,7 +23,9 @@ export function useCheckoutTarget(): { to: string; label: string; guest: boolean
 
 /** Gründe, warum „Zur Kasse“ noch nicht möglich ist */
 export function blockingReasons(state: CartQuoteState): string[] {
-  const reasons = state.blocking.map((e) => e.message);
+  // Leergut-Meldungen stehen ausführlich an der jeweiligen Pfandart – hier nur ein kurzer Verweis
+  const reasons = state.blocking.filter((e) => e.code !== 'empties').map((e) => e.message);
+  if (state.blocking.some((e) => e.code === 'empties')) reasons.push('Bitte prüfen Sie die Leergut-Rückgabe – Details stehen beim Leergut.');
   if (state.lineErrors.length) reasons.push('Bitte passen Sie die markierten Positionen an.');
   if (state.couponError) reasons.push('Bitte entfernen Sie den ungültigen Gutschein.');
   return reasons;
@@ -43,51 +46,64 @@ function Row({ label, value, tone, hint }: { label: ReactNode; value: ReactNode;
 function Totals({ quote, state, count }: { quote: Quote; state: CartQuoteState; count: number }) {
   const t = quote.totals;
   const net = quote.customerType === 'b2b';
+  // Geschäftskunden: Nettowerte der Bestandteile vom Core (netParts), MwSt. aus der Aufschlüsselung – keine eigene Herleitung
+  const parts = net ? t.netParts : undefined;
+  const vat = vatSummary(t);
   const fulfillment = state.input.fulfillment;
+  const fee = parts ? parts.deliveryFee : t.deliveryFee;
   const delivery =
     fulfillment === 'pickup' ? (
       'kostenlos'
     ) : state.zone && quote.zone ? (
-      t.deliveryFee > 0 ? (
-        formatEuro(t.deliveryFee)
+      fee > 0 ? (
+        formatEuro(fee)
       ) : (
         <span className="font-semibold text-emerald-700">kostenlos</span>
       )
     ) : (
       <span className="text-sm text-slate-500">an der Kasse</span>
     );
+  const deposit = parts ? parts.deposit : t.deposit;
+  const refund = parts ? parts.depositRefund : t.depositRefund;
   return (
     <dl className="divide-y divide-slate-100">
       <div className="pb-2">
         {net ? (
-          <>
-            <Row label={`Warenwert netto (${count} Gebinde)`} value={formatEuro(t.itemsNet)} />
-            <Row label="zzgl. MwSt. auf Waren" value={formatEuro(t.itemsGross - t.itemsNet)} />
-          </>
+          <Row label={`Warenwert netto (${count} Gebinde)`} value={formatEuro(parts?.items ?? t.itemsNet)} />
         ) : (
           <Row label={`Warenwert (${count} Gebinde)`} value={formatEuro(t.itemsGross)} />
         )}
-        {t.discount > 0 ? <Row label={`Gutschein ${quote.coupon?.code ?? ''}`} value={`−${formatEuro(t.discount)}`} tone="credit" /> : null}
+        {t.discount > 0 ? <Row label={`Gutschein ${quote.coupon?.code ?? ''}${parts ? ' (netto)' : ''}`} value={`−${formatEuro(parts ? parts.discount : t.discount)}`} tone="credit" /> : null}
         <Row
-          label={fulfillment === 'pickup' ? 'Abholung im Markt' : 'Lieferung'}
+          label={fulfillment === 'pickup' ? 'Abholung im Markt' : parts && fee > 0 ? 'Lieferung (netto)' : 'Lieferung'}
           hint={fulfillment === 'delivery' && !(state.zone && quote.zone) ? 'wird anhand Ihrer Adresse berechnet' : undefined}
           value={delivery}
         />
-        {t.carryFee > 0 ? <Row label="Tragservice" value={formatEuro(t.carryFee)} /> : null}
+        {t.carryFee > 0 ? <Row label={parts ? 'Tragservice (netto)' : 'Tragservice'} value={formatEuro(parts ? parts.carryFee : t.carryFee)} /> : null}
       </div>
-      {t.deposit > 0 || t.depositRefund > 0 ? (
+      {deposit > 0 || refund > 0 ? (
         <div className="py-2">
-          {t.deposit > 0 ? <Row label="Pfand" value={formatEuro(t.deposit)} /> : null}
-          {t.depositRefund > 0 ? <Row label="Leergut-Rückgabe" value={`−${formatEuro(t.depositRefund)}`} tone="credit" /> : null}
+          {deposit > 0 ? <Row label={parts ? 'Pfand (netto)' : 'Pfand'} value={formatEuro(deposit)} /> : null}
+          {refund > 0 ? <Row label={parts ? 'Leergut-Rückgabe (netto)' : 'Leergut-Rückgabe'} value={`−${formatEuro(refund)}`} tone="credit" /> : null}
+        </div>
+      ) : null}
+      {parts ? (
+        <div className="py-2">
+          {(vat.lines ?? [{ rate: 0, net: vat.net, vat: vat.vat }]).map((l) => (
+            <Row key={`n${l.rate}`} label={l.rate ? `Nettobetrag ${l.rate} %` : 'Nettobetrag'} value={formatEuro(l.net)} />
+          ))}
+          {(vat.lines ?? [{ rate: 0, net: vat.net, vat: vat.vat }]).map((l) => (
+            <Row key={`v${l.rate}`} label={l.rate ? `zzgl. MwSt. ${l.rate} %` : 'zzgl. MwSt.'} value={formatEuro(l.vat)} />
+          ))}
         </div>
       ) : null}
       <div className="pt-3">
         <div className="flex items-baseline justify-between gap-4">
           <dt className="text-base font-bold text-slate-900">{t.total < 0 ? 'Auszahlung an Sie' : net ? 'Gesamtbetrag (brutto)' : 'Gesamtbetrag'}</dt>
-          <dd className="text-2xl font-bold tracking-tight tabular-nums text-slate-900">{formatEuro(Math.abs(t.total))}</dd>
+          <dd className="whitespace-nowrap text-2xl font-bold tracking-tight tabular-nums text-slate-900">{formatEuro(Math.abs(t.total))}</dd>
         </div>
         <p className="mt-0.5 text-right text-xs text-slate-500">
-          {net ? `darin ${formatEuro(t.vat)} MwSt.` : `inkl. ${formatEuro(t.vat)} MwSt.`}
+          {net ? `darin ${formatEuro(vat.vat)} MwSt.` : vatIncludedText(t)}
           {t.deposit > 0 ? ' · inkl. Pfand' : ''}
         </p>
       </div>

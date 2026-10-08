@@ -25,10 +25,16 @@ export const DEPOSIT_TYPES: DepositType[] = [
   { id: 'kasten-pet-12', name: 'Kasten 12 × 1,0/0,5 l PET (Mehrweg)', shortName: 'PET-Kasten (12er)', amount: 330, returnable: true },
   { id: 'kasten-saft-6', name: 'Saftkasten 6 × 1,0 l Glas (Mehrweg)', shortName: 'Saftkasten (6er)', amount: 240, returnable: true },
   { id: 'kasten-soft-24', name: 'Kasten 24 × 0,33 l Glas (Mehrweg)', shortName: 'Limokasten (24er)', amount: 510, returnable: true },
+  { id: 'kasten-mate-20', name: 'Kasten 20 × 0,5 l Glas (Mehrweg, 0,15 € je Flasche)', shortName: 'Mate-Kasten (20er)', amount: 450, returnable: true },
   { id: 'einweg-pet-6', name: '6 × 1,5 l PET (Einweg)', shortName: 'Einweg-PET (6er)', amount: 150, returnable: false },
   { id: 'dose-24', name: '24 Dosen (Einweg)', shortName: 'Dosen (24 Stück)', amount: 600, returnable: false },
   { id: 'fass-30', name: 'Bierfass 30 l', shortName: 'Fass 30 l', amount: 3000, returnable: true },
   { id: 'fass-50', name: 'Bierfass 50 l', shortName: 'Fass 50 l', amount: 3000, returnable: true },
+  // lose Einzelflaschen (z. B. aus Sixpacks oder einzeln gekauft) – Rückgabe stückweise, ohne Leergut-Konto
+  { id: 'flasche-bier', name: 'Bierflasche lose (Mehrweg, 0,08 €)', shortName: 'Bierflasche lose', amount: 8, returnable: true, loose: true },
+  { id: 'flasche-glas-mw', name: 'Glas-Mehrwegflasche lose (Wasser/Limo/Saft, 0,15 €)', shortName: 'Glasflasche lose (0,15 €)', amount: 15, returnable: true, loose: true },
+  { id: 'flasche-pet-mw', name: 'PET-Mehrwegflasche lose (0,15 €)', shortName: 'PET-Flasche lose (0,15 €)', amount: 15, returnable: true, loose: true },
+  { id: 'einweg-lose', name: 'Einwegflasche oder Dose lose (0,25 €)', shortName: 'Einweg lose (0,25 €)', amount: 25, returnable: true, loose: true },
 ];
 
 interface ProductDef {
@@ -302,13 +308,13 @@ const PRODUCTS: ProductDef[] = [
   },
   {
     id: 'fritz-kola', brand: 'fritz-kola', name: 'Original', cat: 'limo', pack: '24 × 0,33 l Glas', units: 24, vol: 0.33, mat: 'glas',
-    price: 2399, dep: 'kasten-soft-24', tags: ['vegan'], stock: 3, min: 6, color: '#111827', accent: '#f5f5f4',
+    price: 2399, dep: 'kasten-bier-24', tags: ['vegan'], stock: 3, min: 6, color: '#111827', accent: '#f5f5f4',
     origin: 'Hamburg', loc: 'Gang 4', rating: 4.7,
     desc: 'Kola mit viel Koffein und Zitronennote in der Glas-Mehrwegflasche. Der Wachmacher für Büro, Bar und lange Nächte.',
   },
   {
     id: 'club-mate', brand: 'Club-Mate', name: 'Original', cat: 'limo', pack: '20 × 0,5 l Glas', units: 20, vol: 0.5, mat: 'glas',
-    price: 1999, dep: 'kasten-bier-20', tags: ['vegan'], stock: 48, min: 12, color: '#ca8a04', accent: '#1e3a8a',
+    price: 1999, dep: 'kasten-mate-20', tags: ['vegan'], stock: 48, min: 12, color: '#ca8a04', accent: '#1e3a8a',
     origin: 'Münchsteinach (Franken)', loc: 'Gang 4', rating: 4.5,
     desc: 'Koffeinhaltige Mate-Limonade aus Franken – wenig süß, leicht herb und in jeder Tech-Küche zu Hause.',
   },

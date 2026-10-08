@@ -9,7 +9,7 @@ import { formatDateTime, formatEuro, formatTime } from '@shared/format';
 import { OrderStatusBadge } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { ageShort, firstName, lastStatusAt, orderCrates, slotCompact } from '../model';
-import { B2BTag, CratesPill, FulfillmentIcon } from './OrderBits';
+import { B2BIcon, CratesPill, FulfillmentIcon, SourceIcon } from './OrderBits';
 import { QuickStepButton } from './StatusActions';
 
 export interface OrderCardProps {
@@ -92,9 +92,10 @@ function OrderCardImpl({ order, now, driver, fresh = false, onOpen }: OrderCardP
           </span>
         )}
       </div>
-      <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-snug text-slate-800">
-        <span className="truncate">{order.customerName}</span>
-        <B2BTag type={order.customerType} />
+      <p className="mt-1.5 line-clamp-2 break-words text-[13px] font-semibold leading-snug text-slate-800" title={order.customerName}>
+        {order.customerName}
+        <B2BIcon type={order.customerType} />
+        <SourceIcon source={order.source} />
       </p>
       <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
         <CalendarClock size={13} aria-hidden className="shrink-0 text-slate-400" />

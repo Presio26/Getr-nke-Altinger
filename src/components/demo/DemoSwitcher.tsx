@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, Check, EyeOff, LogOut, RotateCcw, Server, Sparkles, MonitorSmartphone, ChevronRight } from 'lucide-react';
+import { BookOpen, Check, Eye, EyeOff, LogOut, RotateCcw, Server, Sparkles, MonitorSmartphone, ChevronRight } from 'lucide-react';
 import type { DemoUser, Role } from '@shared/types';
 import { api, getApiMode } from '@/api/client';
 import { useBootstrap } from '@/api/hooks';
@@ -8,8 +8,9 @@ import { useSession } from '@/stores/session';
 import { useUi } from '@/stores/ui';
 import { roleHome, ROLE_LABEL } from '@/lib/roles';
 import { isMac } from '@/lib/platform';
+import { useIsDesktop } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
-import { Avatar, Badge, Button, ConfirmModal, IconButton, Modal, Notice, Spinner, errorMessage, toast, type BadgeTone } from '@/components/ui';
+import { Avatar, Badge, Button, ConfirmModal, Modal, Notice, Spinner, errorMessage, toast, type BadgeTone } from '@/components/ui';
 
 const ROLE_TONE: Record<Role, BadgeTone> = {
   customer: 'neutral',
@@ -52,8 +53,13 @@ function DemoUserCard({ u, active, loading, onSelect }: { u: DemoUser; active: b
 }
 
 /**
- * Dezenter Demo-Umschalter (Pille unten links, Alt+D blendet ein/aus):
- * Ein-Klick-Anmeldung als Kunde, Geschäftskunde, Fahrer oder Markt + Demo-Reset.
+ * Demo-Umschalter: Ein-Klick-Anmeldung als Kunde, Geschäftskunde, Fahrer oder Markt + Demo-Reset.
+ *
+ * Zugang:
+ *  - Desktop: kleine Pille unten links (Alt+D blendet ein/aus); im Markt-Dashboard stattdessen in der Seitenleiste
+ *  - Handy/Tablet und installierte App: Pille standardmäßig AUS (echtes App-Gefühl) – Zugang über Kontomenü,
+ *    Footer („Rollen wechseln“) oder dreimal aufs Logo tippen; einblenden lässt sie sich trotzdem
+ *  - die Pille liegt nie über Tab-Leiste, fester Aktionsleiste (--sticky-bar-h) oder Footer-Links (--demo-pill-space)
  */
 export function DemoSwitcher() {
   const { demoUsers } = useBootstrap();
@@ -62,7 +68,6 @@ export function DemoSwitcher() {
   const setVisible = useUi((s) => s.setDemoBarVisible);
   const open = useUi((s) => s.demoOpen);
   const setOpen = useUi((s) => s.setDemoOpen);
-  const sidebarCollapsed = useUi((s) => s.adminSidebarCollapsed);
   const user = useSession((s) => s.user);
   const demoLogin = useSession((s) => s.demoLogin);
   const logout = useSession((s) => s.logout);
@@ -72,6 +77,19 @@ export function DemoSwitcher() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const mode = getApiMode();
+  const desktop = useIsDesktop();
+  const admin = pathname === '/admin' || pathname.startsWith('/admin/');
+  // im Markt-Dashboard (Desktop) sitzt der Zugang in der Seitenleiste – keine schwebende Pille über „Folgen“ & Co.
+  const showPill = visible && demoUsers.length > 0 && !(admin && desktop);
+
+  // Platz für die Pille im Footer freihalten, solange sie schwebt
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--demo-pill-space', showPill ? '3.25rem' : '0px');
+    return () => {
+      root.style.setProperty('--demo-pill-space', '0px');
+    };
+  }, [showPill]);
 
   // Tastenkürzel Alt+D (⌥D)
   useEffect(() => {
@@ -124,29 +142,23 @@ export function DemoSwitcher() {
 
   const customers = demoUsers.filter((u) => u.role === 'customer' || u.role === 'business');
   const team = demoUsers.filter((u) => u.role === 'driver' || u.role === 'admin');
-  const admin = pathname.startsWith('/admin');
-  const shop = !admin && !pathname.startsWith('/fahrer');
   const shortcut = isMac() ? '⌥ D' : 'Alt + D';
 
   return (
     <>
-      {visible ? (
+      {showPill ? (
         <button
           type="button"
           onClick={() => setOpen(true)}
           className={cn(
-            'no-print fixed left-3 z-40 flex h-10 min-w-10 items-center justify-center gap-2 rounded-full bg-slate-900/85 px-3 text-[13px] font-semibold text-white shadow-lg shadow-slate-900/20 ring-1 ring-white/10 backdrop-blur transition-[transform,background-color] hover:bg-slate-900 active:scale-95 sm:left-4',
-            shop ? 'bottom-tabbar lg:bottom-5' : 'bottom-safe-4',
-            // im Markt-Dashboard rechts neben der Seitenleiste
-            admin && (sidebarCollapsed ? 'lg:left-[5.75rem]' : 'lg:left-[17rem]'),
+            // klein: mobil nur das 40-px-Symbol, ab lg Symbol + „Demo“; über Tab-Leiste und StickyActionBar
+            'no-print fixed left-3 z-40 flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-full bg-slate-900/80 px-2.5 text-[13px] font-semibold text-white shadow-lg shadow-slate-900/20 ring-1 ring-white/10 backdrop-blur transition-[transform,background-color] hover:bg-slate-900 active:scale-95 bottom-floating lg:left-4 lg:px-3',
           )}
-          aria-label="Demo-Umschalter öffnen"
-          title={`Demo-Umschalter (${shortcut})`}
+          aria-label={`Demo-Umschalter öffnen${user ? ` (angemeldet: ${user.name})` : ''}`}
+          title={`Demo-Umschalter (${shortcut})${user ? ` · ${user.name}` : ''}`}
         >
           <Sparkles size={16} className="text-accent-400" aria-hidden />
-          {/* in Fahrer-App/Markt auf dem Handy nur als kompaktes Symbol (verdeckt keine Aktionsleisten) */}
-          <span className={cn(!shop && 'hidden sm:inline')}>Demo</span>
-          {user ? <span className={cn('max-w-28 truncate font-medium text-white/60', !shop && 'hidden sm:inline')}>· {user.name.split(' ')[0]}</span> : null}
+          <span className="hidden lg:inline">Demo</span>
         </button>
       ) : null}
 
@@ -197,17 +209,25 @@ export function DemoSwitcher() {
                 Abmelden
               </Button>
             ) : null}
-            <IconButton
-              icon={EyeOff}
+            <Button
+              variant="ghost"
               size="sm"
-              label={`Demo-Pille ausblenden (${shortcut})`}
-              className="h-10 w-10 sm:ml-auto"
+              icon={visible ? EyeOff : Eye}
+              className="h-10 sm:ml-auto"
+              title={`Demo-Pille ${visible ? 'ausblenden' : 'einblenden'} (${shortcut})`}
               onClick={() => {
-                setVisible(false);
+                setVisible(!visible);
                 setOpen(false);
-                toast.info('Demo-Pille ausgeblendet', { description: `Mit ${shortcut} oder über den Link im Seitenfuß wieder einblenden.`, id: 'demo-hidden' });
+                toast.info(visible ? 'Demo-Pille ausgeblendet' : 'Demo-Pille eingeblendet', {
+                  description: visible
+                    ? `Zugang weiter über das Kontomenü, „Rollen wechseln“ im Seitenfuß, ${shortcut} oder dreimal aufs Logo tippen.`
+                    : `Ausblenden mit ${shortcut} oder hier im Demo-Umschalter.`,
+                  id: 'demo-hidden',
+                });
               }}
-            />
+            >
+              {visible ? 'Pille ausblenden' : 'Pille einblenden'}
+            </Button>
           </div>
         </div>
       </Modal>

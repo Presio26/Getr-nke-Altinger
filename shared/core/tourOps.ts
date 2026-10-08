@@ -33,9 +33,37 @@ import { firstName } from './util';
 export const STOP_DWELL_MS = 4 * 60_000;
 /** Standzeit je Stopp in der Demo-Simulation */
 export const SIM_DWELL_MS = 8_000;
+/** Mindest-Reststandzeit, solange der Fahrer noch „vor Ort“ ist (Stopp nicht abgeschlossen) */
+export const MIN_REMAINING_DWELL_MS = 60_000;
 
 export const isStopDone = (s: TourStop) => s.status === 'delivered' || s.status === 'failed';
 export const isStopOpen = (s: TourStop) => s.status === 'pending' || s.status === 'arrived';
+
+/** Wird dieser Stopp in der Simulation vom Fahrer selbst abgeschlossen (statt automatisch)? */
+export function isManualStop(sim: Pick<NonNullable<Tour['simulation']>, 'autoComplete' | 'manualOrderIds'> | undefined, orderId: string): boolean {
+  if (!sim) return true;
+  return !sim.autoComplete || !!sim.manualOrderIds?.includes(orderId);
+}
+
+/** Geplante Standzeit an einem (noch nicht erreichten) Stopp */
+export function stopDwellMs(tour: Tour, orderId: string): number {
+  const sim = tour.simulation?.running ? tour.simulation : undefined;
+  return sim && !isManualStop(sim, orderId) ? SIM_DWELL_MS : STOP_DWELL_MS;
+}
+
+/**
+ * Rest-Standzeit am Stopp, an dem der Fahrer gerade „vor Ort“ ist: automatische Demo-Stopps bis zum Ende der
+ * Simulations-Standzeit; sonst Standard-Standzeit ab Ankunft, mindestens MIN_REMAINING_DWELL_MS (der Fahrer
+ * ist noch nicht fertig – die folgenden Kunden sollen nicht „in 1 Min.“ angezeigt bekommen).
+ */
+export function remainingDwellMs(tour: Tour, stop: TourStop, now: Date): number {
+  const nowMs = now.getTime();
+  const sim = tour.simulation?.running ? tour.simulation : undefined;
+  const simLeft = sim?.dwellUntil ? Date.parse(sim.dwellUntil) - nowMs : 0;
+  if (sim && !isManualStop(sim, stop.orderId)) return Math.max(0, simLeft);
+  const arrived = stop.arrivedAt ? Date.parse(stop.arrivedAt) : nowMs;
+  return Math.max(simLeft, arrived + STOP_DWELL_MS - nowMs, MIN_REMAINING_DWELL_MS);
+}
 
 export function storePoint(e: Engine): GeoPoint {
   return { lat: e.db.settings.location.lat, lng: e.db.settings.location.lng };
@@ -124,7 +152,6 @@ export function estimateStopEtas(e: Engine, tour: Tour, now: Date): (number | un
   const legs = tour.route?.legs ?? [];
   const sim = tour.simulation?.running ? tour.simulation : undefined;
   const factor = sim ? Math.max(0.1, sim.speedFactor) : 1;
-  const dwell = sim?.autoComplete ? SIM_DWELL_MS : STOP_DWELL_MS;
   const result: (number | undefined)[] = tour.stops.map(() => undefined);
   if (tour.status === 'completed') return result;
   let t: number;
@@ -135,11 +162,15 @@ export function estimateStopEtas(e: Engine, tour: Tour, now: Date): (number | un
   } else {
     t = now.getTime();
     start = sim ? Math.min(sim.legIndex, tour.stops.length) : tour.currentStopIndex;
-    // aktuell wartend am Stopp?
+    // aktuell wartend am Stopp? (manueller Stopp: bis der Fahrer fertig ist, mindestens die Rest-Standzeit)
     if (sim?.dwellUntil) {
       const stop = tour.stops[start];
-      if (stop && !isStopDone(stop)) result[start] = t;
-      t = Math.max(t, Date.parse(sim.dwellUntil));
+      if (stop && !isStopDone(stop)) {
+        result[start] = t;
+        t += remainingDwellMs(tour, stop, now);
+      } else {
+        t = Math.max(t, Date.parse(sim.dwellUntil));
+      }
       start += 1;
     }
   }
@@ -148,11 +179,19 @@ export function estimateStopEtas(e: Engine, tour: Tour, now: Date): (number | un
     let legMs = ((leg?.duration ?? 0) * 1000) / factor;
     if (sim && i === sim.legIndex && leg && leg.distance > 0) legMs *= Math.max(0, 1 - sim.progressM / leg.distance);
     const stop = tour.stops[i];
-    if (stop.status === 'arrived') legMs = 0;
+    if (isStopDone(stop)) {
+      if (stop.status !== 'arrived') t += legMs;
+      continue;
+    }
+    if (stop.status === 'arrived' && tour.status === 'active') {
+      // Fahrer steht dort noch: nur die Rest-Standzeit
+      result[i] = t;
+      t += remainingDwellMs(tour, stop, now);
+      continue;
+    }
     t += legMs;
-    if (isStopDone(stop)) continue;
     result[i] = t;
-    t += dwell;
+    t += stopDwellMs(tour, stop.orderId);
   }
   return result;
 }

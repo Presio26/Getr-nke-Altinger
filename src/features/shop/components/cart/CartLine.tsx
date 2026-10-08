@@ -3,7 +3,7 @@ import { AlertTriangle, PackageX, PartyPopper, Trash2 } from 'lucide-react';
 import type { OrderLine, Product, QuoteMessage } from '@shared/types';
 import { formatEuro } from '@shared/format';
 import { useCart } from '@/stores/cart';
-import { ProductImage, productTint } from '@/components/product';
+import { ProductImage, productTint, useTouchStepperSize } from '@/components/product';
 import { Badge, QuantityStepper, Skeleton } from '@/components/ui';
 import { cn } from '@/lib/cn';
 
@@ -21,6 +21,7 @@ interface CartLineProps {
 
 /** Warenkorb-Position: Bild, Name, Stückpreis, Pfand, Mengen-Stepper, Entfernen, Zeilensumme */
 export function CartLine({ productId, qty, product, line, showNet, errors, loading }: CartLineProps) {
+  const stepper = useTouchStepperSize();
   const setQty = useCart((s) => s.setQty);
   const remove = useCart((s) => s.remove);
 
@@ -129,7 +130,7 @@ export function CartLine({ productId, qty, product, line, showNet, errors, loadi
 
           <div className="mt-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-1">
-              <QuantityStepper value={qty} onChange={(n) => setQty(productId, n)} size="sm" min={1} max={Math.max(max, qty)} label={label} />
+              <QuantityStepper value={qty} onChange={(n) => setQty(productId, n)} size={stepper} min={1} max={Math.max(max, qty)} label={label} />
               <button
                 type="button"
                 onClick={() => remove(productId)}

@@ -20,8 +20,8 @@ import {
   Truck,
   type LucideIcon,
 } from 'lucide-react';
-import type { DepositType, EmptiesLine } from '@shared/types';
-import { formatDate, formatEuro } from '@shared/format';
+import type { DepositType, EmptiesLine, Order } from '@shared/types';
+import { formatDate, formatEuro, formatTime } from '@shared/format';
 import { useDepositTypes, useMyCustomer, useMyOrders } from '@/api/hooks';
 import { useCart } from '@/stores/cart';
 import { cn } from '@/lib/cn';
@@ -36,6 +36,13 @@ function depositIcon(id: string): LucideIcon {
   if (id.startsWith('kasten-soft') || id.startsWith('dose')) return CupSoda;
   if (id.startsWith('fass')) return Cylinder;
   return Package;
+}
+
+/** Tatsächlicher Zustell- bzw. Abholzeitpunkt (nicht das gebuchte Zeitfenster) */
+function completedAt(o: Order): string {
+  if (o.proof?.at) return o.proof.at;
+  const done = [...o.statusHistory].reverse().find((h) => h.status === 'delivered' || h.status === 'picked_up');
+  return done?.at ?? o.updatedAt ?? o.slot.date;
 }
 
 function sameLines(a: EmptiesLine[], b: EmptiesLine[]): boolean {
@@ -67,7 +74,7 @@ function BalanceCard({ balance }: { balance: Record<string, number> }) {
     <section aria-label="Leergut-Kontostand" className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-card">
       <div className="relative overflow-hidden bg-gradient-to-br from-brand-700 via-brand-800 to-brand-950 p-5 text-white sm:p-6">
         <Recycle aria-hidden className="pointer-events-none absolute -bottom-10 -right-8 h-44 w-44 text-white/[0.06]" />
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent-300">Ihr Leergut bei uns</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent-300">Leergut bei Ihnen zu Hause</p>
         <div className="mt-2 flex flex-wrap items-end gap-x-8 gap-y-3">
           <div>
             <p className="text-4xl font-bold tracking-tight tabular-nums">{formatEuro(summary.totalValue)}</p>
@@ -75,7 +82,7 @@ function BalanceCard({ balance }: { balance: Record<string, number> }) {
           </div>
           <div>
             <p className="text-2xl font-bold tabular-nums">{summary.totalQty}</p>
-            <p className="text-sm text-white/70">{summary.totalQty === 1 ? 'Gebinde' : 'Gebinde'} bei Ihnen</p>
+            <p className="text-sm text-white/70">{summary.totalQty === 1 ? 'Kasten bzw. Fass' : 'Kästen & Fässer'} von uns</p>
           </div>
         </div>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -177,7 +184,7 @@ function HistoryCard() {
       .filter(isCompletedOrder)
       .map((o) => emptiesFlow(o, types))
       .filter((f) => f.deliveredQty || f.returnedQty)
-      .sort((a, b) => b.order.slot.date.localeCompare(a.order.slot.date) || b.order.createdAt.localeCompare(a.order.createdAt));
+      .sort((a, b) => completedAt(b.order).localeCompare(completedAt(a.order)) || b.order.createdAt.localeCompare(a.order.createdAt));
     const planned = list
       .filter((o) => isOpenOrder(o) && o.emptiesReturn.some((l) => l.qty > 0))
       .sort((a, b) => a.slot.date.localeCompare(b.slot.date));
@@ -231,7 +238,7 @@ function HistoryCard() {
                 <table className="w-full border-collapse text-left text-[13px] [&_td:first-child]:pl-6 [&_td:last-child]:pr-6 [&_th:first-child]:pl-6 [&_th:last-child]:pr-6 [&_td]:px-3 [&_th]:px-3">
                   <THead>
                     <tr>
-                      <TH>Bestellung</TH>
+                      <TH>Geliefert/abgeholt</TH>
                       <TH>Geliefert (Mehrweg)</TH>
                       <TH>Zurückgegeben</TH>
                       <TH className="text-center">Konto</TH>
@@ -251,7 +258,8 @@ function HistoryCard() {
                   <li key={f.order.id} className="px-5 py-3.5">
                     <div className="flex items-center justify-between gap-3">
                       <Link to={`/bestellung/${f.order.id}`} className="min-w-0 text-[15px] font-semibold text-slate-900">
-                        {formatDate(f.order.slot.date, 'short')} <span className="font-normal text-slate-400">·</span> <span className="text-brand-700">{f.order.number}</span>
+                        {formatDate(completedAt(f.order), 'short')} <span className="font-normal text-slate-400">·</span> <span className="text-brand-700">{f.order.number}</span>
+                        <span className="block text-xs font-normal text-slate-500">{f.order.fulfillment === 'pickup' ? 'abgeholt' : 'geliefert'} um {formatTime(completedAt(f.order))} Uhr</span>
                       </Link>
                       <Delta value={f.delta} />
                     </div>
@@ -295,7 +303,9 @@ function HistoryRow({ flow, types }: { flow: EmptiesFlow; types: DepositType[] }
   return (
     <TR>
       <TD className="whitespace-nowrap align-top">
-        <span className="block font-medium tabular-nums text-slate-900">{formatDate(o.slot.date, 'short')}</span>
+        <span className="block font-medium tabular-nums text-slate-900" title={`${o.fulfillment === 'pickup' ? 'Abgeholt' : 'Geliefert'} am ${formatDate(completedAt(o), 'short')}, ${formatTime(completedAt(o))} Uhr`}>
+          {formatDate(completedAt(o), 'short')}
+        </span>
         <Link to={`/bestellung/${o.id}`} className="font-semibold text-brand-700 hover:text-brand-800">
           {o.number}
         </Link>
@@ -322,14 +332,22 @@ function HistoryRow({ flow, types }: { flow: EmptiesFlow; types: DepositType[] }
 
 function ExplainCard() {
   const types = useDepositTypes();
-  const sorted = [...types].sort((a, b) => Number(b.returnable) - Number(a.returnable) || a.amount - b.amount);
+  const sorted = [...types].sort((a, b) => Number(b.returnable) - Number(a.returnable) || Number(!!a.loose) - Number(!!b.loose) || a.amount - b.amount);
+  const looseAmounts = [...new Set(types.filter((t) => t.loose && t.returnable).map((t) => t.amount))].sort((a, b) => a - b);
+  const looseReturn = looseAmounts.length > 0;
   return (
     <Card padding="lg">
       <CardHeader icon={Info} title="Pfand & Mehrweg – kurz erklärt" />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {[
           { icon: Beer, title: 'Mehrweg-Kästen', text: 'Pfand gilt für den ganzen Kasten inklusive Flaschen, z. B. 3,10 € für den Bierkasten. Bitte nur vollständige, sortenreine Kästen zurückgeben.' },
-          { icon: Milk, title: 'Einweg (PET & Dose)', text: '0,25 € pro Flasche oder Dose. Einweg nimmt unser Leergutautomat im Markt an – nicht der Fahrer.' },
+          {
+            icon: Milk,
+            title: looseReturn ? 'Einzelflaschen & Einweg' : 'Einweg (PET & Dose)',
+            text: looseReturn
+              ? `Lose Flaschen und Dosen (${looseAmounts.map((a) => formatEuro(a)).join(', ')} je Stück) geben Sie im Markt am Automaten ab – oder melden sie bei der Bestellung unter „Einzelflaschen“ an, dann nimmt der Fahrer sie mit.`
+              : '0,25 € pro Flasche oder Dose. Einweg nimmt unser Leergutautomat im Markt an – nicht der Fahrer.',
+          },
           { icon: Cylinder, title: 'Fässer', text: '30,00 € Pfand je Fass. Fässer und Zapfanlagen holen wir nach Ihrem Fest auf Wunsch wieder ab.' },
         ].map((b) => (
           <div key={b.title} className="rounded-2xl bg-slate-50 p-4">
@@ -346,7 +364,7 @@ function ExplainCard() {
             <span className="min-w-0">
               <span className="block font-medium text-slate-800">{t.name}</span>
               <span className={cn('text-xs', t.returnable ? 'text-emerald-700' : 'text-slate-500')}>
-                {t.returnable ? 'Rückgabe beim Fahrer oder im Markt' : 'Rückgabe im Markt (Automat)'}
+                {t.returnable ? (t.loose ? 'Einzelflaschen – stückweise beim Fahrer oder im Markt' : 'Rückgabe beim Fahrer oder im Markt') : 'Rückgabe im Markt (Automat)'}
               </span>
             </span>
             <span className="shrink-0 font-semibold tabular-nums text-slate-900">{formatEuro(t.amount)}</span>
@@ -394,7 +412,7 @@ export default function DepositPage() {
   const { data: customer, isLoading, error, refetch } = useMyCustomer();
   return (
     <>
-      <PageHeader title="Leergut-Konto" subtitle="Wie viel Leergut Sie von uns haben – und wie Sie Ihr Pfand bequem zurückbekommen." back="/konto" />
+      <PageHeader title="Leergut-Konto" subtitle="Welche Kästen und Fässer von uns noch bei Ihnen sind – und wie Sie Ihr Pfand bequem zurückbekommen." back="/konto" />
       {isLoading ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]" aria-busy>
           <Skeleton className="h-80 rounded-2xl" />

@@ -6,6 +6,8 @@ import type { CheckoutInput, FulfillmentType, PaymentMethod } from '@shared/type
 import { ApiError } from '@shared/api';
 import { api } from '@/api/client';
 import { qk, useDepositTypes, useMyCustomer, useProductMap, useQuote, useSettings, useSlots } from '@/api/hooks';
+import { formatDate } from '@shared/format';
+import { todayString } from '@shared/time';
 import { cartToCheckoutInput, useCart } from '@/stores/cart';
 import { ButtonLink, Card, EmptyState, ErrorState, PageHeader, RadioCards, Skeleton, errorMessage, toast } from '@/components/ui';
 import { StoreInfo } from '@/features/orders/components/StoreInfo';
@@ -146,6 +148,29 @@ export default function CheckoutPage() {
 
   const shownDay = day ?? selectedSlot?.date ?? firstAvailableDay(slots) ?? slots?.[0]?.date ?? '';
 
+  // ── Heute kein freies Fenster mehr (z. B. abends): nächstes freies Fenster vorschlagen und vormerken ──
+  const [autoSlot, setAutoSlot] = useState<{ slotId: string; text: string } | null>(null);
+  const autoSlotFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!slots || cart.slotId || autoSlotFor.current === cart.fulfillment) return;
+    const own = slots.filter((s) => s.type === cart.fulfillment);
+    if (!own.length) return;
+    autoSlotFor.current = cart.fulfillment;
+    const today = todayString();
+    if (own.some((s) => s.date === today && s.available)) return;
+    const next = own.find((s) => s.available);
+    if (!next) return;
+    const when = `${formatDate(next.date, 'relative')} ${next.start}–${next.end} Uhr`;
+    cart.set({ slotId: next.id });
+    setDay(next.date);
+    setSlotNotice(null);
+    setAutoSlot({
+      slotId: next.id,
+      text: `Heute ist keine ${cart.fulfillment === 'pickup' ? 'Abholung' : 'Lieferung'} mehr möglich – nächster freier Termin: ${when}.`,
+    });
+  }, [slots, cart.slotId, cart.fulfillment]);
+  const autoSlotInfo = autoSlot && autoSlot.slotId === cart.slotId ? autoSlot.text : null;
+
   // ── Zahlart: nur erlaubte; Geschäftskunden mit Rechnungskauf standardmäßig „Rechnung“ ──
   const paymentDefaulted = useRef(false);
   useEffect(() => {
@@ -228,6 +253,7 @@ export default function CheckoutPage() {
       next.slot = delivery ? 'Bitte wählen Sie ein Lieferfenster.' : 'Bitte wählen Sie ein Abholfenster.';
       flag('kasse-zeitfenster');
     }
+    if (quote?.errors.some((e) => e.code === 'empties')) flag('kasse-optionen');
     const rentalErr = quote?.errors.find((e) => e.code === 'rental_date');
     if (rentalErr) {
       next.eventDate = rentalErr.message;
@@ -294,9 +320,9 @@ export default function CheckoutPage() {
   // ── Zustände ──
   if (!cart.items.length && !placedRef.current) {
     return (
-      <div className="mx-auto max-w-3xl">
+      <>
         <PageHeader title="Kasse" back="/warenkorb" />
-        <Card className="border-dashed">
+        <Card padding="none">
           <EmptyState
             icon={ShoppingCart}
             title="Ihr Warenkorb ist leer"
@@ -313,7 +339,7 @@ export default function CheckoutPage() {
             }
           />
         </Card>
-      </div>
+      </>
     );
   }
 
@@ -335,7 +361,7 @@ export default function CheckoutPage() {
 
   if (customerQuery.isLoading || !customer) {
     return (
-      <div className="mx-auto max-w-6xl">
+      <>
         {header}
         {customerQuery.error ? (
           <Card>
@@ -344,7 +370,7 @@ export default function CheckoutPage() {
         ) : (
           <CheckoutSkeleton />
         )}
-      </div>
+      </>
     );
   }
 
@@ -358,7 +384,7 @@ export default function CheckoutPage() {
   const barHint = quote && quote.totals.deposit > 0 ? 'inkl. Pfand' : undefined;
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <>
       {header}
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px] xl:gap-8">
@@ -465,11 +491,18 @@ export default function CheckoutPage() {
               settings={settings}
               error2={issues.slot}
               notice={slotNotice}
+              suggestion={autoSlotInfo}
             />
           </StepCard>
 
           {/* 4 · Optionen */}
-          <StepCard id="kasse-optionen" step={nextStep()} title="Service & Hinweise" subtitle="Alles optional – außer dem Festdatum bei Leihartikeln." invalid={!!issues.eventDate}>
+          <StepCard
+            id="kasse-optionen"
+            step={nextStep()}
+            title="Service & Hinweise"
+            subtitle="Alles optional – außer dem Festdatum bei Leihartikeln."
+            invalid={!!issues.eventDate || !!quote?.errors.some((e) => e.code === 'empties')}
+          >
             <OptionsStep
               fulfillment={cart.fulfillment}
               customer={customer}
@@ -480,6 +513,7 @@ export default function CheckoutPage() {
               onCarry={(v) => cart.set({ carryService: v })}
               empties={cart.emptiesReturn}
               onEmpties={(lines) => cart.set({ emptiesReturn: lines })}
+              emptiesErrors={quote?.errors.filter((e) => e.code === 'empties').map((e) => e.message)}
               hasEventItems={hasEventItems}
               hasRental={hasRental}
               eventDate={cart.eventDate}
@@ -544,9 +578,7 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      {/* Platz für die schwebende Bestellleiste */}
-      <div className="h-28 lg:hidden" aria-hidden />
       <MobileOrderBar total={total} hidden={summaryButtonVisible} placing={placing} onPlace={() => void place()} hint={barHint} />
-    </div>
+    </>
   );
 }

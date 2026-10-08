@@ -54,9 +54,25 @@ function assertConsistent(db: Db, now: Date): void {
     if (o.fulfillment === 'pickup') expect(o.pickupCode).toMatch(new RegExp(`^[${PICKUP_CODE_ALPHABET}]{6}$`));
     // Summen
     const t = o.totals;
-    expect(t.itemsGross).toBe(o.lines.reduce((s, l) => s + l.lineGross, 0));
+    const linesGross = o.lines.reduce((s, l) => s + l.lineGross, 0);
+    // Privatkunden: Summe der Positionen; Geschäftskunden: Brutto auf Netto-Basis (± Rundungscent)
+    if (o.customerType === 'b2c') expect(t.itemsGross).toBe(linesGross);
+    // (Positionsbrutto rundet je Gebinde: höchstens ½ Cent × Menge Abweichung)
+    else expect(Math.abs(t.itemsGross - linesGross)).toBeLessThanOrEqual(Math.ceil(o.lines.reduce((s, l) => s + l.qty, 0) / 2) + 2);
+    expect(t.itemsNet).toBe(o.lines.reduce((s, l) => s + l.lineNet, 0));
     expect(t.deposit).toBe(o.lines.reduce((s, l) => s + l.depositTotal, 0));
     expect(t.total).toBe(t.itemsGross - t.discount + t.deposit - t.depositRefund + t.deliveryFee + t.carryFee);
+    // MwSt.-Aufschlüsselung: Σ netto + Σ MwSt. = Endbetrag, Σ MwSt. = vat, Bestandteile netto = Σ netto
+    const vb = t.vatBreakdown!;
+    expect(vb.length, o.id).toBeGreaterThan(0);
+    expect(vb.reduce((s, l) => s + l.net + l.vat, 0)).toBe(t.total);
+    expect(vb.reduce((s, l) => s + l.vat, 0)).toBe(t.vat);
+    const np = t.netParts!;
+    expect(np.items - np.discount + np.deposit - np.depositRefund + np.deliveryFee + np.carryFee).toBe(vb.reduce((s, l) => s + l.net, 0));
+    if (o.customerType === 'b2b') {
+      for (const l of vb) expect(l.vat).toBe(Math.round((l.net * l.rate) / 100));
+      expect(np.items).toBe(t.itemsNet);
+    }
     // Verlauf: chronologisch, endet beim aktuellen Status, nichts in der Zukunft
     expect(o.statusHistory[0].status).toBe('pending');
     expect(o.statusHistory.at(-1)!.status).toBe(o.status);
@@ -80,7 +96,14 @@ function assertConsistent(db: Db, now: Date): void {
     expect(inv.net + inv.vat + inv.deposit - inv.depositRefund).toBe(inv.gross);
     const invOrders = inv.orderIds.map((id) => db.orders.find((o) => o.id === id)!);
     expect(invOrders.every((o) => o && o.invoiceId === inv.id && o.status === 'delivered')).toBe(true);
-    expect(inv.gross).toBe(invOrders.reduce((s, o) => s + o.totals.total, 0));
+    // MwSt. je Satz = round(Netto × Satz) auf die Rechnungssumme; Netto = Summe der Bestellungen
+    const vb = inv.vatBreakdown!;
+    expect(vb.reduce((s, l) => s + l.vat, 0)).toBe(inv.vat);
+    expect(vb.reduce((s, l) => s + l.net, 0)).toBe(inv.net + inv.deposit - inv.depositRefund);
+    for (const l of vb) expect(l.vat).toBe(Math.round((l.net * l.rate) / 100));
+    expect(inv.net).toBe(invOrders.reduce((s, o) => s + o.totals.netParts!.items - o.totals.netParts!.discount + o.totals.netParts!.deliveryFee + o.totals.netParts!.carryFee, 0));
+    // Rechnungsbetrag weicht höchstens um Rundungscent von der Summe der Bestellungen ab
+    expect(Math.abs(inv.gross - invOrders.reduce((s, o) => s + o.totals.total, 0))).toBeLessThanOrEqual(invOrders.length);
   }
   for (const s of db.subscriptions) {
     const c = db.customers.find((x) => x.id === s.customerId)!;
@@ -143,7 +166,19 @@ describe('Demo-Daten', () => {
     expect(db.settings.deliverySlots.filter((s) => s.weekday === 6).every((s) => s.capacity === 10)).toBe(true);
     expect(db.settings.zones.map((z) => z.name)).toEqual(['Garching & Hochbrück', 'Nachbarorte', 'München-Nord']);
     expect(db.settings.coupons.map((c) => c.code)).toEqual(['WILLKOMMEN10', 'FEST5', 'GARCHING']);
-    expect(db.depositTypes).toHaveLength(11);
+    expect(db.depositTypes).toHaveLength(16);
+    // lose Einzelflaschen: rückgabefähig, ohne Leergut-Konto
+    expect(db.depositTypes.filter((d) => d.loose).map((d) => [d.id, d.amount, d.returnable])).toEqual([
+      ['flasche-bier', 8, true],
+      ['flasche-glas-mw', 15, true],
+      ['flasche-pet-mw', 15, true],
+      ['einweg-lose', 25, true],
+    ]);
+    // Pfand laut Gebinde: fritz-kola 24 × 0,08 € + Kasten, Club-Mate 20 × 0,15 € + Kasten
+    const dep = (productId: string) => db.depositTypes.find((d) => d.id === db.products.find((p) => p.id === productId)!.depositTypeId)!;
+    expect(dep('fritz-kola')).toMatchObject({ id: 'kasten-bier-24', amount: 342 });
+    expect(dep('club-mate')).toMatchObject({ id: 'kasten-mate-20', amount: 450 });
+    expect(db.settings.demoAutoConfirm).toBe(false);
     expect(db.categories.map((c) => c.id)).toEqual(['bier', 'alkoholfrei', 'wasser', 'limo', 'saft', 'wein', 'spirituosen', 'fass', 'leihartikel']);
   });
 
@@ -210,6 +245,66 @@ describe('Demo-Daten', () => {
     expect(tomorrow.every((o) => !o.tourId && (o.status === 'pending' || o.status === 'confirmed'))).toBe(true);
     const pickups = db.orders.filter((o) => o.fulfillment === 'pickup' && o.slot.date === today);
     expect(pickups.map((o) => o.status).sort()).toEqual(['pending', 'picking', 'ready']);
+    // Annas vorbereitete Bestellung (Tour 1, Stopp 1) wird bar bezahlt → Kassieren am Stopp
+    const annaToday = db.orders.find((o) => o.id === db.tours[0].stops[0].orderId)!;
+    expect(annaToday).toMatchObject({ customerId: 'c-anna', paymentMethod: 'cash', paymentStatus: 'open' });
+  });
+
+  it('unbestätigte Bestellungen sind frisch, ältere heutige schon in Arbeit', () => {
+    for (const now of [DEFAULT_NOW, berlinDate('2026-10-10', '06:10'), berlinDate('2026-10-12', '19:30')]) {
+      const d = createSeedDb(now);
+      const pending = d.orders.filter((o) => o.status === 'pending');
+      expect(pending.length).toBeGreaterThan(0);
+      for (const o of pending) {
+        const age = (now.getTime() - Date.parse(o.createdAt)) / 60_000;
+        expect(age).toBeGreaterThanOrEqual(5);
+        expect(age).toBeLessThanOrEqual(25);
+      }
+      // alles, was älter als 30 Minuten ist und noch offen, ist bereits bestätigt
+      const open = d.orders.filter((o) => ['pending', 'confirmed', 'picking', 'ready'].includes(o.status));
+      for (const o of open) if (now.getTime() - Date.parse(o.createdAt) > 30 * 60_000) expect(o.status).not.toBe('pending');
+    }
+  });
+
+  it('Click & Collect: Reservierung endet nie an einem Ruhetag oder nach Ladenschluss', () => {
+    for (const now of [DEFAULT_NOW, berlinDate('2026-10-09', '17:00'), berlinDate('2026-10-10', '08:00')]) {
+      const d = createSeedDb(now);
+      for (const o of d.orders.filter((x) => x.fulfillment === 'pickup' && x.holdUntil)) {
+        const until = new Date(o.holdUntil!);
+        const day = dayString(until);
+        const hours = d.settings.openingHours[new Date(`${day}T12:00:00Z`).getUTCDay()];
+        expect(hours, `${o.number} ${o.holdUntil}`).toBeTruthy();
+        const time = until.toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' });
+        expect(time >= hours!.open && time <= hours!.close, `${o.number} ${time}`).toBe(true);
+      }
+    }
+  });
+
+  it('Herkunft: überwiegend App, ein Viertel Telefon (früher mehr), Abos', () => {
+    const count = (list: typeof db.orders) => ({
+      app: list.filter((o) => o.source === 'app').length,
+      phone: list.filter((o) => o.source === 'phone').length,
+      subscription: list.filter((o) => o.source === 'subscription').length,
+    });
+    expect(db.orders.every((o) => o.source === 'app' || o.source === 'phone' || o.source === 'subscription')).toBe(true);
+    const all = count(db.orders);
+    const n = db.orders.length;
+    expect(all.app / n).toBeGreaterThan(0.5);
+    expect(all.phone / n).toBeGreaterThan(0.15);
+    expect(all.phone / n).toBeLessThan(0.35);
+    expect(all.subscription / n).toBeGreaterThan(0.05);
+    expect(db.orders.filter((o) => o.subscriptionId).every((o) => o.source === 'subscription')).toBe(true);
+    // ältere Bestellungen häufiger telefonisch als die der letzten zwei Wochen
+    const today = todayString(DEFAULT_NOW);
+    const share = (list: typeof db.orders) => count(list).phone / Math.max(1, list.length);
+    const old = db.orders.filter((o) => o.slot.date < addDays(today, -15));
+    const recent = db.orders.filter((o) => o.slot.date >= addDays(today, -15));
+    expect(share(old)).toBeGreaterThan(share(recent));
+    // Telefonbestellungen: im Verlauf „Markt (Telefon)“
+    for (const o of db.orders.filter((x) => x.source === 'phone')) {
+      expect(o.statusHistory[0].by).toBe('Markt (Telefon)');
+      expect(['paypal', 'card']).not.toContain(o.paymentMethod);
+    }
   });
 
   it('Kunden, Zugänge, Abos, Rechnungen, Benachrichtigungen', () => {

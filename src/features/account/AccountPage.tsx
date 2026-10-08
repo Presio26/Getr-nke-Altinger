@@ -336,7 +336,7 @@ function useTiles(customer: Customer): Tile[] {
       {
         to: '/konto/leergut',
         title: 'Leergut-Konto',
-        text: deposit.totalQty ? `${deposit.totalQty} Gebinde · ${formatEuro(deposit.totalValue)} Pfand` : 'Kein offenes Leergut',
+        text: deposit.totalQty ? `${deposit.totalQty} ${deposit.totalQty === 1 ? 'Kasten' : 'Kästen'} bei Ihnen · ${formatEuro(deposit.totalValue)} Pfand` : 'Kein offenes Leergut',
         icon: Recycle,
         tone: 'bg-teal-50 text-teal-700',
       },

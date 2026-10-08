@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { GeoPoint } from '../types';
+import type { Driver, GeoPoint, Order } from '../types';
 import { addDays, weekdayOf } from '../time';
 import { createTestCore } from './test/helpers';
-import { loopLength, optimizeSequence } from './planning';
+import { distributeOrders, loopLength, optimizeSequence } from './planning';
 import { STORE_LOCATION } from './seed/settings';
 
 function nextDeliveryDay(today: string): string {
@@ -61,22 +61,81 @@ describe('Tourenplanung', () => {
     expect(t.events.some((e) => e.event.type === 'tour.deleted')).toBe(true);
   });
 
-  it('adminAutoPlanTours verteilt offene Lieferungen auf verfügbare Fahrer', async () => {
+  it('adminAutoPlanTours: Vorschau ohne Speichern, nur bestätigte Aufträge, gleiche Planung beim Übernehmen', async () => {
     const t = createTestCore();
     const admin = await t.as('u-admin');
     const day = nextDeliveryDay('2026-10-08');
     // ein Fahrer hat frei
     const ayse = (await admin.adminListDrivers()).find((d) => d.id === 'd-ayse')!;
     await admin.adminSaveDriver({ ...ayse, status: 'off' });
+    const all = (await admin.adminListOrders({ date: day, fulfillment: 'delivery' })).filter((o) => !o.tourId);
+    const confirmed = all.filter((o) => o.status !== 'pending').map((o) => o.id);
+    const pending = all.filter((o) => o.status === 'pending').map((o) => o.id);
+    expect(confirmed).toHaveLength(3);
+    expect(pending).toHaveLength(2);
+
+    const toursBefore = t.db().tours.length;
+    const eventsBefore = t.events.length;
+    const preview = await admin.adminAutoPlanTours(day, { preview: true });
+    // nichts gespeichert, keine Ereignisse
+    expect(t.db().tours.length).toBe(toursBefore);
+    expect(t.db().orders.filter((o) => confirmed.includes(o.id)).every((o) => !o.tourId)).toBe(true);
+    expect(t.events.length).toBe(eventsBefore);
+    expect(preview.every((x) => x.id.startsWith('vorschau-') && x.stops.every((st) => !!st.eta))).toBe(true);
+    expect(preview.flatMap((x) => x.orders).every((o) => o.tourId?.startsWith('vorschau-'))).toBe(true);
+    // Vorschau ist wiederholbar (deterministisch)
+    const again = await admin.adminAutoPlanTours(day, { preview: true });
+    expect(again.map((x) => [x.driverId, x.stops.map((st) => st.orderId)])).toEqual(preview.map((x) => [x.driverId, x.stops.map((st) => st.orderId)]));
+
     const tours = await admin.adminAutoPlanTours(day);
-    expect(tours.length).toBeGreaterThanOrEqual(2);
+    expect(tours.map((x) => [x.driverId, x.name, x.stops.map((st) => st.orderId)])).toEqual(preview.map((x) => [x.driverId, x.name, x.stops.map((st) => st.orderId)]));
     const planned = tours.flatMap((x) => x.orders.map((o) => o.id));
-    expect(new Set(planned).size).toBe(5);
+    expect(new Set(planned)).toEqual(new Set(confirmed));
+    // unbestätigte Aufträge bleiben ungeplant
+    expect(planned.some((id) => pending.includes(id))).toBe(false);
     expect(tours.every((x) => x.driverId !== 'd-ayse')).toBe(true);
     expect(tours.every((x) => x.route && x.route.legs.length === x.stops.length + 1)).toBe(true);
     expect(tours.every((x) => x.plannedStart && x.orders.every((o) => o.slot.start === x.plannedStart))).toBe(true);
     // nochmal planen: nichts mehr offen
     expect(await admin.adminAutoPlanTours(day)).toEqual([]);
+
+    // ein später bestätigter Einzelauftrag kommt in die bestehende Tour seines Fensters (keine 1-Stopp-Tour)
+    const late = t.db().orders.find((o) => pending.includes(o.id))!;
+    const existing = tours.find((x) => x.plannedStart === late.slot.start)!;
+    expect(existing).toBeTruthy();
+    await admin.adminUpdateOrderStatus(late.id, 'confirmed');
+    const extendedPreview = await admin.adminAutoPlanTours(day, { preview: true });
+    expect(extendedPreview).toHaveLength(1);
+    expect(extendedPreview[0].id).toBe(existing.id);
+    expect(t.db().tours.find((x) => x.id === existing.id)!.stops).toHaveLength(existing.stops.length);
+    const extended = await admin.adminAutoPlanTours(day);
+    expect(extended).toHaveLength(1);
+    expect(extended[0].id).toBe(existing.id);
+    expect(extended[0].stops.map((st) => st.orderId)).toContain(late.id);
+    expect(extended[0].route?.legs).toHaveLength(existing.stops.length + 2);
+    expect((await admin.getOrder(late.id)).tourId).toBe(existing.id);
+  });
+
+  it('distributeOrders: Einzelauftrag wandert in eine Gruppe desselben Fensters mit freier Kapazität', () => {
+    const mk = (id: string, crates: number, lat: number, lng: number) =>
+      ({
+        id,
+        number: id,
+        fulfillment: 'delivery',
+        slot: { id: '', date: '2026-10-09', start: '10:00', end: '12:00' },
+        address: { lat, lng },
+        lines: [{ qty: crates }],
+      }) as unknown as Order;
+    const drivers = [
+      { id: 'a', name: 'A', capacityCrates: 10 },
+      { id: 'b', name: 'B', capacityCrates: 60 },
+    ] as Driver[];
+    // Richtung vom Markt: Nord (8 Kästen), Ost (5), Süd (1)
+    const orders = [mk('o1', 8, 48.27, 11.6545), mk('o2', 5, 48.2525, 11.68), mk('o3', 1, 48.23, 11.6534)];
+    // B hat im Fenster schon eine Tour → A wird zuerst gewählt, schafft aber nur den ersten Auftrag
+    const groups = distributeOrders(STORE_LOCATION, orders, drivers, { b: 1 }, { '10:00-12:00': ['b'] });
+    expect(groups.every((g) => g.orders.length > 1)).toBe(true);
+    expect(groups.flatMap((g) => g.orders.map((o) => o.id)).sort()).toEqual(['o1', 'o2', 'o3']);
   });
 
   it('laufende Touren können nicht gelöscht werden', async () => {
@@ -107,6 +166,12 @@ describe('Tourenplanung', () => {
     expect(stats.openInvoicesAmount).toBeGreaterThan(stats.overdueInvoicesAmount);
     expect(stats.today.openDeliveries).toBe(12);
     expect(stats.today.openPickups).toBe(3);
+    // Herkunft der Bestellungen (Telefon-Entlastung)
+    expect(stats.bySource).toBeTruthy();
+    expect(stats.bySource!.app + stats.bySource!.phone + stats.bySource!.subscription).toBe(stats.ordersTotal);
+    expect(stats.bySource!.app).toBeGreaterThan(stats.bySource!.phone);
+    expect(stats.bySource!.phone).toBeGreaterThan(0);
+    expect(stats.bySource!.subscription).toBeGreaterThan(0);
     expect(stats.depositOutstanding).toBeGreaterThan(0);
     const manual = t
       .db()

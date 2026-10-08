@@ -3,10 +3,16 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 const API_PORT = Number(process.env.API_PORT ?? 8787);
+/** Versionsnummer aus package.json (eine Quelle für Footer, /api/health …) */
+const APP_VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version?: string }).version ?? '0.0.0';
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -35,6 +41,7 @@ export default defineConfig({
           { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           { src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
         ],
+        // nur Kundenaktionen – Fahrer-App und Markt-Dashboard sieht nicht jeder Kunde beim langen Tippen aufs Symbol
         shortcuts: [
           {
             name: 'Sortiment',
@@ -44,30 +51,38 @@ export default defineConfig({
             icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
           },
           {
+            name: 'Angebote der Woche',
+            short_name: 'Angebote',
+            description: 'Aktuelle Angebote ansehen',
+            url: '/angebote',
+            icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+          },
+          {
+            name: 'Warenkorb',
+            short_name: 'Warenkorb',
+            description: 'Warenkorb ansehen und bestellen',
+            url: '/warenkorb',
+            icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+          },
+          {
             name: 'Meine Bestellungen',
             short_name: 'Bestellungen',
             description: 'Bestellungen ansehen und Lieferung live verfolgen',
             url: '/bestellungen',
             icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
           },
-          {
-            name: 'Fahrer-App',
-            short_name: 'Fahrer',
-            description: 'Touren, Stopps und Zustellnachweise',
-            url: '/fahrer',
-            icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
-          },
-          {
-            name: 'Markt-Dashboard',
-            short_name: 'Markt',
-            description: 'Bestellungen, Touren und Live-Karte',
-            url: '/admin',
-            icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
-          },
+        ],
+        // für die ausführliche Installationsansicht in Chrome/Android („Richer Install UI“) – scripts/generate-splash.mjs
+        screenshots: [
+          { src: '/screenshots/narrow-start.jpg', sizes: '390x844', type: 'image/jpeg', form_factor: 'narrow', label: 'Startseite: Getränke liefern lassen oder abholen' },
+          { src: '/screenshots/narrow-sortiment.jpg', sizes: '390x844', type: 'image/jpeg', form_factor: 'narrow', label: 'Sortiment mit Preisen und Pfand' },
+          { src: '/screenshots/wide-start.jpg', sizes: '1440x900', type: 'image/jpeg', form_factor: 'wide', label: 'Getränke Altinger am Desktop' },
         ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,woff2}'],
+        // iOS-Startbilder und Manifest-Screenshots lädt das System selbst – nicht in jeden Cache legen
+        globIgnores: ['**/splash/**', '**/screenshots/**'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api(\/|$)/, /^\/socket\.io(\/|$)/],

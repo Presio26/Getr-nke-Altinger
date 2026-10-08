@@ -3,8 +3,9 @@
  *
  * Fortschritt je Tick = Abschnittsgeschwindigkeit (distance/duration, begrenzt 6–16 m/s)
  * × speedFactor × vergangene Zeit seit dem letzten Tick. Am Ende eines Abschnitts zu Stopp i:
- * „angekommen“, Standzeit ~8 s, danach (autoComplete) Zustellung; ohne autoComplete wird
- * gewartet, bis der Fahrer den Stopp abschließt. Nach der Rückfahrt endet die Tour.
+ * „angekommen“ (Kunde wird informiert), Standzeit ~8 s, danach (autoComplete) Zustellung; ohne autoComplete
+ * – bzw. an Stopps in `manualOrderIds` (Demo: Annas Stopp) – wird gewartet, bis der Fahrer den Stopp abschließt
+ * oder ein Problem meldet; danach fährt die Simulation automatisch weiter. Nach der Rückfahrt endet die Tour.
  */
 import type { GeoPosition, LatLng, RouteLeg, Tour } from '../types';
 import type { Engine } from './engine';
@@ -14,6 +15,7 @@ import {
   arriveOp,
   completeOp,
   finishTourOp,
+  isManualStop,
   isStopDone,
   publishPosition,
   recomputeEtas,
@@ -92,7 +94,8 @@ export function advanceSimulation(e: Engine, tour: Tour, now: Date): SimStepResu
     if (now.getTime() < Date.parse(sim.dwellUntil)) return { moved: false, changed: false };
     const stop = tour.stops[sim.legIndex];
     if (stop && !isStopDone(stop)) {
-      if (!sim.autoComplete) return { moved: false, changed: false };
+      // manueller Stopp: warten, bis der Fahrer zustellt oder ein Problem meldet
+      if (isManualStop(sim, stop.orderId)) return { moved: false, changed: false };
       const order = e.db.orders.find((o) => o.id === stop.orderId);
       if (order && order.status === 'out_for_delivery') {
         const customer = e.db.customers.find((c) => c.id === order.customerId);
@@ -160,7 +163,7 @@ export function initSimulation(
   e: Engine,
   tour: Tour,
   now: Date,
-  options: { speedFactor: number; autoComplete: boolean },
+  options: { speedFactor: number; autoComplete: boolean; manualOrderIds?: string[] },
 ): void {
   const prev = tour.simulation;
   const current = Math.min(tour.currentStopIndex, tour.stops.length);
@@ -175,6 +178,8 @@ export function initSimulation(
     progressM: resume && prev ? prev.progressM : 0,
     lastTickAt: now.toISOString(),
   };
+  const manual = options.manualOrderIds ?? prev?.manualOrderIds;
+  if (manual?.length) sim.manualOrderIds = [...manual];
   if (resume && prev?.dwellUntil) sim.dwellUntil = prev.dwellUntil;
   // Ein bereits „angekommener“ Stopp wartet am Ziel des Abschnitts
   const stop = tour.stops[sim.legIndex];

@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react';
-import { CalendarX2, Clock, Info } from 'lucide-react';
+import { CalendarClock, CalendarX2, Clock, Info } from 'lucide-react';
 import type { FulfillmentType, StoreSettings, TimeSlot } from '@shared/types';
 import { formatDate, formatSlot, WEEKDAY_SHORT } from '@shared/format';
 import { addDays, todayString, weekdayOf } from '@shared/time';
@@ -22,6 +22,8 @@ export interface SlotStepProps {
   error2?: string | null;
   /** Hinweis (z. B. Fenster ist inzwischen ausgebucht) */
   notice?: string | null;
+  /** automatisch vorgemerktes Fenster erklären (z. B. „Heute ist keine Lieferung mehr möglich …“) */
+  suggestion?: string | null;
 }
 
 export const SLOT_DAYS = 7;
@@ -91,7 +93,7 @@ function SlotButton({ slot, selected, onSelect }: { slot: TimeSlot; selected: bo
 }
 
 /** Zeitfenster: Tage als Reiter (heute … +6), Fenster als Raster */
-export function SlotStep({ type, slots, loading, error, onRetry, day, onDay, value, onChange, settings, error2, notice }: SlotStepProps) {
+export function SlotStep({ type, slots, loading, error, onRetry, day, onDay, value, onChange, settings, error2, notice, suggestion }: SlotStepProps) {
   const days = useMemo(() => buildDays(slots), [slots]);
   const current = days.find((d) => d.day === day) ?? days[0];
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -106,6 +108,11 @@ export function SlotStep({ type, slots, loading, error, onRetry, day, onDay, val
       {notice ? (
         <Notice tone="warning" className="mb-4" title="Bitte wählen Sie ein neues Zeitfenster">
           {notice}
+        </Notice>
+      ) : null}
+      {suggestion && !notice ? (
+        <Notice tone="info" icon={CalendarClock} className="mb-4" title={suggestion}>
+          Wir haben diesen Termin für Sie vorgemerkt – Sie können gern ein anderes Fenster wählen.
         </Notice>
       ) : null}
 

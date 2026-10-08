@@ -11,6 +11,7 @@ import {
   computeRoute,
   detachOrderFromTour,
   dispatchOrder,
+  estimateStopEtas,
   isStopDone,
   nextOpenStopIndex,
   orderPoint,
@@ -24,9 +25,33 @@ import {
 import { straightLineLeg } from '../routing';
 import { formatDate } from '../../format';
 import { emitOrder, emitTour } from '../notify';
-import { distributeOrders, optimizeSequence } from '../planning';
-import { firstName, TIME_RE } from '../util';
+import { cheapestInsertion, distributeOrders, MAX_STOPS_PER_TOUR, optimizeSequence, orderCrates } from '../planning';
+import { clone, firstName, TIME_RE } from '../util';
 import { isDayString } from '../../time';
+
+/** Status, die die automatische Planung disponiert (unbestätigte Aufträge nicht) */
+export const AUTO_PLAN_STATUSES: Order['status'][] = ['confirmed', 'picking', 'ready'];
+
+/** Vorschau-Tour mit Kopien der Aufträge (Tour-Zuordnung und ETA nur in der Kopie) */
+function previewWithOrders(e: Engine, tour: Tour, orders: Order[], now: Date): TourWithOrders {
+  const etas = estimateStopEtas(e, tour, now);
+  tour.stops.forEach((st, i) => {
+    const ms = etas[i];
+    if (ms !== undefined) st.eta = new Date(Math.round(ms / 1000) * 1000).toISOString();
+  });
+  const copies = orders.map((o) => {
+    const c = clone(o);
+    c.tourId = tour.id;
+    c.driverId = tour.driverId;
+    const eta = tour.stops.find((st) => st.orderId === o.id)?.eta;
+    if (eta) c.eta = eta;
+    return c;
+  });
+  const out: TourWithOrders = { ...tour, orders: copies };
+  const driver = e.db.drivers.find((d) => d.id === tour.driverId);
+  if (driver) out.driver = driver;
+  return out;
+}
 
 function tourNumberFor(e: Engine, date: string): number {
   return e.db.tours.filter((t) => t.date === date).length + 1;
@@ -34,6 +59,22 @@ function tourNumberFor(e: Engine, date: string): number {
 
 function assertNotSimulating(tour: Tour): void {
   if (tour.simulation?.running) throw new ApiError('conflict', 'Bitte stoppen Sie zuerst die Simulation dieser Tour.');
+}
+
+/** Mindest-Ersparnis, ab der eine neue Reihenfolge übernommen wird (Fahrer und Kunden behalten sonst ihren Plan) */
+export const MIN_OPTIMIZE_GAIN = 0.02;
+
+/**
+ * Ist die neue Route wirklich besser? Mindestens 2 % kürzer (Strecke oder Fahrzeit), ohne dass der andere
+ * Wert spürbar schlechter wird. Gleich lange oder längere Routen werden nie übernommen.
+ */
+export function isRouteImprovement(candidate: Pick<NonNullable<Tour['route']>, 'distance' | 'duration'>, current: Pick<NonNullable<Tour['route']>, 'distance' | 'duration'>): boolean {
+  const shorter = (a: number, b: number) => b > 0 && a <= b * (1 - MIN_OPTIMIZE_GAIN);
+  const notWorse = (a: number, b: number) => a <= b * 1.01 + 1;
+  return (
+    (shorter(candidate.distance, current.distance) && notWorse(candidate.duration, current.duration)) ||
+    (shorter(candidate.duration, current.duration) && notWorse(candidate.distance, current.distance))
+  );
 }
 
 /** Stopps neu ordnen und Route/ETAs übernehmen */
@@ -207,43 +248,132 @@ export function tourHandlers(
       if (tour.status === 'active' && driver?.position && !fixed.some((s) => s.status === 'arrived')) start = driver.position;
       const seq = optimizeSequence(start, openPoints, store);
       const stops = [...fixed, ...seq.map((i) => open[i])];
-      const allPoints = stops.map((s) => orderPoint(findOrder(e, s.orderId)) as GeoPoint);
-      const route = await computeRoute(e, allPoints);
+      // gleiche Reihenfolge → nichts zu tun (Route und ETAs bleiben)
+      if (stops.every((s, i) => s.orderId === tour.stops[i]?.orderId)) return tour;
+
+      // Beide Reihenfolgen mit demselben Routing-Dienst rechnen und nur übernehmen, was wirklich kürzer ist
+      const pointsOf = (list: TourStop[]) => list.map((s) => orderPoint(findOrder(e, s.orderId)) as GeoPoint);
+      const [candidate, currentRoute] = await Promise.all([computeRoute(e, pointsOf(stops)), computeRoute(e, pointsOf(tour.stops))]);
       const current = findTour(e, tourId);
       const sameSet =
         current.stops.length === stops.length && current.stops.every((s) => stops.some((x) => x.orderId === s.orderId));
       if (!sameSet) throw new ApiError('conflict', 'Die Tour wurde zwischenzeitlich geändert. Bitte erneut versuchen.');
       assertNotSimulating(current);
+      if (!isRouteImprovement(candidate, currentRoute)) {
+        // bisherige Reihenfolge ist (praktisch) optimal – nichts umstellen, Kunden behalten ihre Ankunftszeiten
+        return current;
+      }
       const byId = new Map(current.stops.map((s) => [s.orderId, s]));
-      applyStops(e, current, stops.map((s) => byId.get(s.orderId) ?? s), route, ctx.now);
+      applyStops(e, current, stops.map((s) => byId.get(s.orderId) ?? s), candidate, ctx.now);
       for (const o of tourOrders(e, current)) emitOrder(e, o);
       emitTour(e, current);
       return current;
     },
 
-    async adminAutoPlanTours(ctx, date) {
+    async adminAutoPlanTours(ctx, date, options) {
       requireAdmin(ctx);
       if (!isDayString(date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
+      const preview = options?.preview === true;
       const drivers = e.db.drivers.filter((d) => d.status !== 'off');
       if (!drivers.length) {
         throw new ApiError('validation', 'Es ist kein Fahrer im Dienst. Bitte setzen Sie mindestens einen Fahrer auf „Verfügbar“.');
       }
+      // nur bestätigte Aufträge disponieren (unbestätigte erst nach der Bestätigung durch den Markt)
       const isOpen = (o: Order) =>
-        o.fulfillment === 'delivery' && o.slot.date === date && !o.tourId && OPEN_STATUSES.includes(o.status) && !!orderPoint(o);
-      const open = e.db.orders.filter(isOpen);
+        o.fulfillment === 'delivery' && o.slot.date === date && !o.tourId && AUTO_PLAN_STATUSES.includes(o.status) && !!orderPoint(o);
+      const open = e.db.orders.filter(isOpen).sort((a, b) => a.slot.start.localeCompare(b.slot.start) || a.number.localeCompare(b.number));
       if (!open.length) return [];
+      const dayTours = e.db.tours.filter((t) => t.date === date && t.status !== 'completed');
       const perDriver: Record<string, number> = {};
-      for (const t of e.db.tours) if (t.date === date) perDriver[t.driverId] = (perDriver[t.driverId] ?? 0) + 1;
+      for (const t of dayTours) perDriver[t.driverId] = (perDriver[t.driverId] ?? 0) + 1;
+      // Fahrer, die im jeweiligen Fenster schon eine Tour haben
+      const windows = [...new Set(open.map((o) => `${o.slot.start}-${o.slot.end}`))];
+      const inWindow = (t: Tour, key: string) => {
+        const [ws, we] = key.split('-');
+        return !!t.plannedStart && t.plannedStart >= ws && t.plannedStart < we;
+      };
+      const busyByWindow: Record<string, string[]> = {};
+      for (const key of windows) busyByWindow[key] = dayTours.filter((t) => inWindow(t, key)).map((t) => t.driverId);
       const store = storePoint(e);
-      const groups = distributeOrders(store, open, drivers, perDriver);
+      const groups = distributeOrders(store, open, drivers, perDriver, busyByWindow);
 
+      // Einzelaufträge an eine bestehende, noch geplante Tour im selben Fenster hängen, wenn dort Platz ist
+      const extensions = new Map<string, Order[]>();
+      const extendable = (t: Tour, key: string, add: Order) => {
+        if (t.status !== 'planned' || t.simulation?.running || !inWindow(t, key)) return false;
+        const driver = e.db.drivers.find((d) => d.id === t.driverId);
+        if (!driver || driver.status === 'off') return false;
+        const added = extensions.get(t.id) ?? [];
+        const crates = [...tourOrders(e, t), ...added].reduce((sum, o) => sum + orderCrates(o), 0);
+        return t.stops.length + added.length < MAX_STOPS_PER_TOUR && crates + orderCrates(add) <= (driver.capacityCrates || 60);
+      };
+      const newGroups = groups.filter((g) => {
+        if (g.orders.length !== 1) return true;
+        const key = `${g.slotStart}-${g.slotEnd}`;
+        const target = dayTours
+          .filter((t) => extendable(t, key, g.orders[0]))
+          .sort((a, b) => a.stops.length - b.stops.length || a.name.localeCompare(b.name))[0];
+        if (!target) return true;
+        extensions.set(target.id, [...(extensions.get(target.id) ?? []), g.orders[0]]);
+        return false;
+      });
+
+      // ── Routen (Netzwerk) ──
       const planned: { driverId: string; slotStart: string; slotEnd: string; orders: Order[]; route: NonNullable<Tour['route']> }[] = [];
-      for (const g of groups) {
+      for (const g of newGroups) {
         const points = g.orders.map((o) => orderPoint(o) as GeoPoint);
         const seq = optimizeSequence(store, points, store);
         const ordered = seq.map((i) => g.orders[i]);
         const route = await computeRoute(e, ordered.map((o) => orderPoint(o) as GeoPoint));
         planned.push({ ...g, orders: ordered, route });
+      }
+      const extended: { tourId: string; stopIds: string[]; added: Order[]; route: NonNullable<Tour['route']> }[] = [];
+      for (const [tourId, added] of extensions) {
+        const t = e.db.tours.find((x) => x.id === tourId);
+        if (!t) continue;
+        const ids = t.stops.map((x) => x.orderId);
+        const pts = tourOrders(e, t).map((o) => orderPoint(o) as GeoPoint);
+        for (const o of added) {
+          const pos = cheapestInsertion(store, pts, orderPoint(o) as GeoPoint);
+          ids.splice(pos, 0, o.id);
+          pts.splice(pos, 0, orderPoint(o) as GeoPoint);
+        }
+        extended.push({ tourId, stopIds: ids, added, route: await computeRoute(e, pts) });
+      }
+
+      // ── Vorschau: gleiche Planung, nichts wird gespeichert ──
+      if (preview) {
+        const out: TourWithOrders[] = [];
+        let number = tourNumberFor(e, date);
+        for (const [i, p] of planned.entries()) {
+          const driver = e.db.drivers.find((d) => d.id === p.driverId);
+          if (!driver) continue;
+          const tour: Tour = {
+            id: `vorschau-${i + 1}`,
+            name: `Tour ${number++} · ${p.slotStart}–${p.slotEnd} · ${firstName(driver.name)}`,
+            date,
+            driverId: driver.id,
+            status: 'planned',
+            stops: p.orders.map((o) => ({ orderId: o.id, status: 'pending' })),
+            route: p.route,
+            currentStopIndex: 0,
+            plannedStart: p.slotStart,
+          };
+          out.push(previewWithOrders(e, tour, p.orders, ctx.now));
+        }
+        for (const x of extended) {
+          const t = e.db.tours.find((y) => y.id === x.tourId);
+          if (!t) continue;
+          const byId = new Map(t.stops.map((st) => [st.orderId, st]));
+          const tour: Tour = {
+            ...clone(t),
+            stops: x.stopIds.map((id) => clone(byId.get(id)) ?? { orderId: id, status: 'pending' }),
+            route: x.route,
+          };
+          const orders = x.stopIds.map((id) => e.db.orders.find((o) => o.id === id)).filter((o): o is Order => !!o);
+          out.push(previewWithOrders(e, tour, orders, ctx.now));
+        }
+        return out;
       }
 
       // ── nach den awaits übernehmen (nur Aufträge, die noch frei sind) ──
@@ -284,6 +414,25 @@ export function tourHandlers(
         for (const o of orders) emitOrder(e, o);
         emitTour(e, tour);
         created.push(withOrders(e, tour));
+      }
+      for (const x of extended) {
+        const t = e.db.tours.find((y) => y.id === x.tourId);
+        // nur, wenn sich die Tour inzwischen nicht verändert hat und die Aufträge noch frei sind
+        const before = x.stopIds.filter((id) => !x.added.some((o) => o.id === id));
+        if (!t || t.status !== 'planned' || t.simulation?.running || t.stops.length !== before.length || t.stops.some((st, i) => st.orderId !== before[i])) continue;
+        const added = x.added.map((o) => e.db.orders.find((y) => y.id === o.id)).filter((o): o is Order => !!o && isOpen(o));
+        if (added.length !== x.added.length) continue;
+        const byId = new Map(t.stops.map((st) => [st.orderId, st]));
+        applyStops(e, t, x.stopIds.map((id): TourStop => byId.get(id) ?? { orderId: id, status: 'pending' }), x.route, ctx.now);
+        for (const o of added) {
+          o.tourId = t.id;
+          o.driverId = t.driverId;
+          o.updatedAt = ctx.now.toISOString();
+        }
+        recomputeEtas(e, t, ctx.now);
+        for (const o of tourOrders(e, t)) emitOrder(e, o);
+        emitTour(e, t);
+        created.push(withOrders(e, t));
       }
       return created;
     },

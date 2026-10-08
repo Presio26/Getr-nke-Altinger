@@ -6,7 +6,7 @@ import { formatDate, formatEuro } from '@shared/format';
 import { todayString } from '@shared/time';
 import { useCategories, useMyCustomer, useProducts, usePrice } from '@/api/hooks';
 import { useCart, useCartQty } from '@/stores/cart';
-import { ProductImage, productTint } from '@/components/product';
+import { ProductImage, productTint, useTouchStepperSize } from '@/components/product';
 import { Badge, Button, ButtonLink, Card, EmptyState, ErrorState, PageHeader, QuantityStepper, Skeleton, toast } from '@/components/ui';
 import { useNow } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
@@ -19,6 +19,7 @@ function savingsPct(p: Product): number {
 
 /** Angebotskarte: Ersparnis, Gültigkeit und Warenkorb-Steuerung */
 function OfferCard({ product, today }: { product: Product; today: string }) {
+  const stepper = useTouchStepperSize();
   const price = usePrice(product, 1);
   const qty = useCartQty(product.id);
   const add = useCart((s) => s.add);
@@ -84,7 +85,7 @@ function OfferCard({ product, today }: { product: Product; today: string }) {
               Ausverkauft
             </Button>
           ) : qty > 0 ? (
-            <QuantityStepper value={qty} onChange={(n) => setQty(product.id, n)} size="sm" removeAtMin label={label} />
+            <QuantityStepper value={qty} onChange={(n) => setQty(product.id, n)} size={stepper} removeAtMin label={label} />
           ) : (
             <Button size="sm" icon={ShoppingCart} onClick={onAdd} aria-label={`${label} in den Warenkorb`}>
               In den Warenkorb

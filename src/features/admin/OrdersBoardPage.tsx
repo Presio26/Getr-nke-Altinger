@@ -4,10 +4,10 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCheck, ClipboardList, Columns3, Inbox, LayoutList, Search, ShoppingBag, Truck, X } from 'lucide-react';
+import { CheckCheck, ClipboardList, Columns3, Inbox, LayoutList, Phone, Search, ShoppingBag, Truck, X } from 'lucide-react';
 import type { AdminOrderQuery } from '@shared/api';
 import type { Driver, FulfillmentType, Order, OrderStatus } from '@shared/types';
-import { ORDER_STATUS_LABEL, formatEuro, formatRelative } from '@shared/format';
+import { ORDER_STATUS_LABEL, formatDate, formatEuro, formatRelative } from '@shared/format';
 import { todayString, addDays } from '@shared/time';
 import { api } from '@/api/client';
 import { qk } from '@/api/hooks';
@@ -37,7 +37,9 @@ import {
 import { useAdminDrivers, useAdminOrders } from './ops/api';
 import { useElementWidth, useFreshIds, useParamState } from './ops/hooks';
 import { BOARD_COLUMNS, DAY_RE, OPEN_STATUSES, columnOf, lastStatusAt, orderCrates, slotKey, slotShort, type BoardColumnId } from './ops/model';
-import { B2BTag, FulfillmentIcon, LiveDot } from './ops/components/OrderBits';
+import { B2BTag, FulfillmentIcon, LiveDot, SourceTag } from './ops/components/OrderBits';
+import { PhoneOrderLauncher, useOpenPhoneOrder } from './ops/components/PhoneOrderLauncher';
+import { useNewOrderChime } from './ops/sound';
 import { OrderCard } from './ops/components/OrderCard';
 import { OrderQuickView } from './ops/components/OrderQuickView';
 import { QuickStepButton } from './ops/components/StatusActions';
@@ -105,7 +107,11 @@ function BoardColumnView({
         <header className="flex min-h-12 items-center gap-2 px-2.5 pb-1.5 pt-2.5">
           <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', dot)} aria-hidden />
           <h2 className="min-w-0 flex-1 text-[13px] font-bold leading-tight text-slate-700">{title}</h2>
-          <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-bold tabular-nums text-slate-700 shadow-xs ring-1 ring-slate-200">{orders.length}</span>
+          {orders.length ? (
+            <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-bold tabular-nums text-slate-700 shadow-xs ring-1 ring-slate-200">{orders.length}</span>
+          ) : (
+            <span className="sr-only">0</span>
+          )}
         </header>
       ) : null}
       {id === 'pending' && orders.length > 1 ? (
@@ -180,7 +186,10 @@ function BoardView({ orders, now, drivers, fresh, onOpen }: { orders: Order[]; n
       {/* Breiter Inhaltsbereich (ab ca. 1060 px): alle Spalten nebeneinander, sonst eine Spalte je Reiter */}
       <div ref={widthRef}>
         {width === 0 ? null : wide ? (
-          <div className="grid grid-cols-6 gap-2">
+          <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: BOARD_COLUMNS.map((c) => (grouped[c.id].length ? 'minmax(0,1fr)' : 'minmax(0,0.7fr)')).join(' ') }}
+          >
             {BOARD_COLUMNS.map((c) => (
               <BoardColumnView
                 key={c.id}
@@ -395,10 +404,16 @@ function ListView({ now, onOpen }: { now: Date; onOpen: (o: Order) => void }) {
                       <p className="flex items-center gap-1.5 font-medium text-slate-800">
                         <span className="truncate">{o.customerName}</span>
                         <B2BTag type={o.customerType} />
+                        <SourceTag source={o.source} />
                       </p>
                       <p className="truncate text-xs text-slate-500">{o.address ? `${o.address.street}, ${o.address.zip} ${o.address.city}` : o.pickupCode ? `Abholcode ${o.pickupCode}` : 'Abholung im Markt'}</p>
                     </TD>
-                    <TD className="whitespace-nowrap">{slotShort(o.slot, now)}</TD>
+                    <TD className="whitespace-nowrap">
+                      <p className="text-slate-800">{formatDate(o.slot.date, 'relative', now)}</p>
+                      <p className="text-xs tabular-nums text-slate-500">
+                        {o.slot.start}–{o.slot.end} Uhr
+                      </p>
+                    </TD>
                     <TD>
                       <OrderStatusBadge status={o.status} fulfillment={o.fulfillment} />
                     </TD>
@@ -431,6 +446,7 @@ function ListView({ now, onOpen }: { now: Date; onOpen: (o: Order) => void }) {
                   <p className="mt-2 flex items-center gap-1.5 text-[15px] font-medium text-slate-800">
                     <span className="truncate">{o.customerName}</span>
                     <B2BTag type={o.customerType} />
+                    <SourceTag source={o.source} />
                   </p>
                   <div className="mt-1 flex items-center justify-between gap-3 text-sm text-slate-500">
                     <span className="truncate">
@@ -470,6 +486,8 @@ export default function OrdersBoardPage() {
   const drivers = useMemo(() => new Map((driverList ?? []).map((d) => [d.id, d])), [driverList]);
   const ids = useMemo(() => data?.map((o) => o.id), [data]);
   const fresh = useFreshIds(ids);
+  useNewOrderChime(data);
+  const openPhoneOrder = useOpenPhoneOrder();
 
   const today = todayString(now);
   const tomorrow = addDays(today, 1);
@@ -508,15 +526,20 @@ export default function OrdersBoardPage() {
           ) : undefined
         }
         actions={
-          <SegmentedControl
-            aria-label="Ansicht"
-            value={view === 'liste' ? 'liste' : 'board'}
-            onChange={(v) => setView(v as View)}
-            options={[
-              { value: 'board', label: 'Board', icon: Columns3 },
-              { value: 'liste', label: 'Liste', icon: LayoutList },
-            ]}
-          />
+          <>
+            <Button variant="accent" icon={Phone} onClick={() => openPhoneOrder()}>
+              Telefonbestellung
+            </Button>
+            <SegmentedControl
+              aria-label="Ansicht"
+              value={view === 'liste' ? 'liste' : 'board'}
+              onChange={(v) => setView(v as View)}
+              options={[
+                { value: 'board', label: 'Board', icon: Columns3 },
+                { value: 'liste', label: 'Liste', icon: LayoutList },
+              ]}
+            />
+          </>
         }
       />
 
@@ -575,6 +598,7 @@ export default function OrdersBoardPage() {
         </>
       )}
 
+      <PhoneOrderLauncher />
       <OrderQuickView order={openOrder} driver={openOrder?.driverId ? drivers.get(openOrder.driverId) : undefined} now={now} onClose={() => setOpenId(null)} />
     </>
   );

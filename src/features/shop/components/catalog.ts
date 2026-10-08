@@ -51,7 +51,7 @@ export function packKind(p: Product, depositTypes: readonly DepositType[]): Pack
   if (p.material === 'dose') return 'dose';
   if (p.unitCount <= 1) return p.material === 'sonstiges' ? 'zubehoer' : 'einzel';
   const dep = p.depositTypeId ? depositTypes.find((d) => d.id === p.depositTypeId) : undefined;
-  if (dep?.returnable) return 'kasten';
+  if (dep?.returnable && !dep.loose) return 'kasten';
   return 'sixpack';
 }
 

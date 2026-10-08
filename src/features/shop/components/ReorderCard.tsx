@@ -63,27 +63,30 @@ export function ReorderCard({ order, className }: { order: Order; className?: st
             </div>
             <OrderStatusBadge status={order.status} fulfillment={order.fulfillment} className="sm:ml-auto md:ml-0" />
           </div>
-          <ul className="mt-4 flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-            {lines.slice(0, 6).map((l) => {
+          <ul className="mt-4 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap" aria-label={`Artikel aus Bestellung ${order.number}`}>
+            {lines.slice(0, lines.length > 6 ? 5 : 6).map((l) => {
               const p = products.get(l.productId);
+              const brand = p?.brand ?? '';
+              const name = p ? p.name : l.name;
               return (
-                <li key={l.productId} className="w-[4.75rem] shrink-0">
+                <li key={l.productId} className="min-w-0 sm:w-24">
                   <div
-                    className="relative h-[4.75rem] w-[4.75rem] overflow-hidden rounded-xl ring-1 ring-slate-900/5"
+                    className="relative aspect-square w-full overflow-hidden rounded-xl ring-1 ring-slate-900/5"
                     style={{ background: p ? productTint(p) : '#f1f5f9' }}
                   >
                     {p ? <ProductImage product={p} className="absolute inset-0 p-1" /> : <Skeleton className="absolute inset-0" />}
                     <span className="absolute bottom-1 right-1 rounded-md bg-slate-900/80 px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums">{l.qty}×</span>
                   </div>
-                  <p className="mt-1 truncate text-[11px] font-medium text-slate-600" title={l.name}>
-                    {l.name}
+                  {brand ? <p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">{brand}</p> : null}
+                  <p className={cn('line-clamp-2 text-xs font-semibold leading-snug text-slate-700', !brand && 'mt-1')} title={l.name}>
+                    {name}
                   </p>
                 </li>
               );
             })}
             {lines.length > 6 ? (
-              <li className="flex h-[4.75rem] w-[4.75rem] shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">
-                +{lines.length - 6}
+              <li className="flex aspect-square w-full items-center justify-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-600 sm:w-24">
+                +{lines.length - 5}
               </li>
             ) : null}
           </ul>

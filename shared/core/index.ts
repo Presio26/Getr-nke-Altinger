@@ -17,11 +17,10 @@ import { systemHandlers } from './handlers/system';
 import { authHandlers } from './handlers/auth';
 import { catalogHandlers } from './handlers/catalog';
 import { customerHandlers } from './handlers/customer';
-import { orderHandlers } from './handlers/orders';
+import { demoAutoConfirmEnabled, orderHandlers } from './handlers/orders';
 import { driverHandlers } from './handlers/driver';
 import { tourHandlers } from './handlers/tours';
 import { adminHandlers } from './handlers/admin';
-import { pendingHandlers } from './handlers/pending';
 import { invoiceHandlers } from './handlers/invoices';
 import { subscriptionHandlers } from './handlers/subscriptions';
 import { notificationHandlers } from './handlers/notifications';
@@ -60,7 +59,7 @@ export interface CoreOptions {
   routing?: RoutingProvider;
   /** Default: Photon (photon.komoot.io) mit PLZ-Zentrum-Fallback */
   geocoder?: Geocoder;
-  /** Demo-Modus: resetDemo für alle erlaubt, Ein-Klick-Login, automatische Bestätigung (Default true) */
+  /** Demo-Modus: resetDemo für alle erlaubt, Ein-Klick-Login, automatische Bestätigung nur mit settings.demoAutoConfirm (Default true) */
   demoMode?: boolean;
 }
 
@@ -110,6 +109,7 @@ const READ_ONLY = new Set<ApiMethod>([
   'adminGetStats',
   'adminListInvoices',
   'adminListSubscriptions',
+  'adminQuote',
 ]);
 
 /** Persist-Takt für reine Positionsänderungen der Simulation */
@@ -137,7 +137,6 @@ function buildHandlers(e: Engine): CoreHandlers {
     ...driverHandlers(e),
     ...tourHandlers(e),
     ...adminHandlers(e),
-    ...pendingHandlers(e),
   };
 }
 
@@ -200,13 +199,14 @@ export function createCore(options: CoreOptions): Core {
     let changed = false;
     let moved = false;
 
-    // Demo: neue Bestellungen nach kurzer Zeit automatisch bestätigen
+    // Demo: neue Bestellungen nach kurzer Zeit automatisch bestätigen – nur, solange der Markt das eingeschaltet hat
     if (db.autoConfirm?.length) {
-      const due = db.autoConfirm.filter((x) => Date.parse(x.at) <= now.getTime());
+      const enabled = demoAutoConfirmEnabled(engine);
+      const due = enabled ? db.autoConfirm.filter((x) => Date.parse(x.at) <= now.getTime()) : db.autoConfirm;
       if (due.length) {
-        db.autoConfirm = db.autoConfirm.filter((x) => Date.parse(x.at) > now.getTime());
+        db.autoConfirm = enabled ? db.autoConfirm.filter((x) => Date.parse(x.at) > now.getTime()) : [];
         changed = true;
-        if (engine.demoMode) {
+        if (enabled) {
           for (const item of due) {
             const order = db.orders.find((o) => o.id === item.orderId);
             if (order?.status !== 'pending') continue;

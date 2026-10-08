@@ -91,7 +91,7 @@
   @keyframes toast-in {
     from {
       opacity: 0;
-      transform: translateY(-8px) scale(0.97);
+      transform: translateY(8px) scale(0.97);
     }
     to {
       opacity: 1;
@@ -109,6 +109,23 @@
 }
 
 /* ───────────────────────────── Basis ───────────────────────────── */
+
+/*
+ * Höhen fester Leisten unten (für Abstände von Footer, Toasts, Demo-Pille, Install-Hinweis):
+ *  --tabbar-h      mobile Tab-Leiste des Shops (nur < md, inkl. Safe-Area) – per :has() automatisch
+ *  --sticky-bar-h  StickyActionBar (setzt die Komponente selbst, inkl. eigener Safe-Area)
+ *  --demo-pill-space  Platz für die schwebende Demo-Pille (setzt DemoSwitcher, solange sichtbar)
+ */
+:root {
+  --tabbar-h: 0px;
+  --sticky-bar-h: 0px;
+  --demo-pill-space: 0px;
+}
+@media (max-width: 767.98px) {
+  :root:has([data-tabbar]) {
+    --tabbar-h: calc(4rem + 1px + env(safe-area-inset-bottom));
+  }
+}
 
 @layer base {
   html {
@@ -239,18 +256,28 @@
 @utility pb-safe-4 {
   padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
 }
+/* Abstand unten für Inhalte über Tab-Leiste (nur mobil vorhanden) und StickyActionBar */
 @utility pb-tabbar {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
+  padding-bottom: calc(max(var(--tabbar-h) + var(--sticky-bar-h), env(safe-area-inset-bottom)) + 1.5rem);
 }
-/* wie pb-tabbar, zusätzlich Platz für die Demo-Pille über der Tab-Leiste */
+/* wie pb-tabbar, zusätzlich Platz für die Demo-Pille */
 @utility pb-tabbar-demo {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 8.25rem);
+  padding-bottom: calc(max(var(--tabbar-h) + var(--sticky-bar-h), env(safe-area-inset-bottom)) + var(--demo-pill-space) + 1.5rem);
 }
 @utility bottom-safe-4 {
   bottom: calc(env(safe-area-inset-bottom) + 1rem);
 }
+/* schwebend über der Tab-Leiste (mobil) bzw. knapp über dem unteren Rand (ab md, keine Tab-Leiste) */
 @utility bottom-tabbar {
-  bottom: calc(env(safe-area-inset-bottom) + 4.75rem);
+  bottom: calc(max(var(--tabbar-h), env(safe-area-inset-bottom)) + 0.75rem);
+}
+/* schwebende Elemente (Toasts, Hinweise) über Tab-Leiste UND fester Aktionsleiste */
+@utility bottom-floating {
+  bottom: calc(max(var(--tabbar-h) + var(--sticky-bar-h), env(safe-area-inset-bottom)) + 0.75rem);
+}
+/* wie bottom-floating mit etwas mehr Luft (ab sm, Toasts rechts unten) */
+@utility bottom-floating-lg {
+  bottom: calc(max(var(--tabbar-h) + var(--sticky-bar-h), env(safe-area-inset-bottom)) + 1.5rem);
 }
 @utility top-safe-2 {
   top: calc(env(safe-area-inset-top) + 0.5rem);
@@ -307,6 +334,24 @@
   height: 36px !important;
   line-height: 36px !important;
   color: var(--color-slate-700) !important;
+}
+/* Touch-Geräte: Zoom-Knöpfe als ausreichend große Touch-Ziele (44 px) */
+@media (pointer: coarse) {
+  .leaflet-bar a {
+    width: 44px !important;
+    height: 44px !important;
+    line-height: 44px !important;
+    font-size: 22px !important;
+  }
+}
+/* Kachelfugen (Haarlinien) bei Retina/Subpixel-Versatz vermeiden: Kacheln minimal überlappen lassen */
+.leaflet-container .leaflet-tile-pane img.leaflet-tile {
+  outline: 1px solid transparent;
+  mix-blend-mode: normal;
+}
+.leaflet-container .leaflet-tile-container img.leaflet-tile {
+  width: 256.5px !important;
+  height: 256.5px !important;
 }
 .leaflet-tooltip {
   border-radius: 10px;

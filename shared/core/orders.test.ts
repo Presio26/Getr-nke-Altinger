@@ -13,10 +13,37 @@ const errorOf = async (p: Promise<unknown>): Promise<ApiError> => {
 };
 
 describe('Bestell-Lebenszyklus', () => {
+  it('Demo-Autobestätigung ist standardmäßig aus – der Markt bestätigt selbst', async () => {
+    const t = createTestCore();
+    const anna = await t.as('u-anna');
+    const admin = await t.as('u-admin');
+    expect(t.db().settings.demoAutoConfirm).toBe(false);
+    const slot = await firstFreeSlot(anna, 'pickup');
+    const order = await anna.placeOrder(checkout({ items: [{ productId: 'paulaner-hell', qty: 1 }], fulfillment: 'pickup', slotId: slot.id }));
+    expect(t.core.hasRunningSimulation()).toBe(false);
+    t.tickSeconds(10);
+    expect((await anna.getOrder(order.id)).status).toBe('pending');
+    // eingeschaltet und wieder ausgeschaltet: vorgemerkte Bestellungen werden nicht mehr bestätigt
+    const settings = (await admin.getBootstrap()).settings;
+    expect((await admin.adminSaveSettings({ ...settings, demoAutoConfirm: true })).demoAutoConfirm).toBe(true);
+    const second = await anna.placeOrder(checkout({ items: [{ productId: 'paulaner-hell', qty: 1 }], fulfillment: 'pickup', slotId: slot.id }));
+    expect(t.core.hasRunningSimulation()).toBe(true);
+    // Einstellungen ohne das Feld (ältere Oberfläche) lassen den Schalter unverändert
+    const { demoAutoConfirm: _drop, ...withoutFlag } = (await admin.getBootstrap()).settings;
+    void _drop;
+    expect((await admin.adminSaveSettings(withoutFlag)).demoAutoConfirm).toBe(true);
+    await admin.adminSaveSettings({ ...settings, demoAutoConfirm: false });
+    t.tickSeconds(10);
+    expect((await anna.getOrder(second.id)).status).toBe('pending');
+    expect(t.core.hasRunningSimulation()).toBe(false);
+  });
+
   it('Abholung: Code, Reservierung, Bestand, Benachrichtigung, automatische Bestätigung', async () => {
     const t = createTestCore();
     const anna = await t.as('u-anna');
     const admin = await t.as('u-admin');
+    // Demo-Schalter „Bestellungen automatisch bestätigen“ einschalten
+    await admin.adminSaveSettings({ ...(await admin.getBootstrap()).settings, demoAutoConfirm: true });
     const slot = await firstFreeSlot(anna, 'pickup');
     const stockBefore = t.db().products.find((p) => p.id === 'paulaner-hell')!.stock;
     const order = await anna.placeOrder(
@@ -130,11 +157,17 @@ describe('Bestell-Lebenszyklus', () => {
     const admin = await t.as('u-admin');
     const slot = await firstFreeSlot(anna, 'pickup');
     const o = await anna.placeOrder(checkout({ items: [{ productId: 'paulaner-hell', qty: 1 }], fulfillment: 'pickup', slotId: slot.id }));
-    expect((await errorOf(admin.adminUpdateOrderStatus(o.id, 'ready'))).code).toBe('conflict');
+    // Abholung kann nie „zugestellt“ oder „unterwegs“ sein – auch nicht über einen Sprung
     expect((await errorOf(admin.adminUpdateOrderStatus(o.id, 'delivered'))).code).toBe('conflict');
+    expect((await errorOf(admin.adminUpdateOrderStatus(o.id, 'out_for_delivery'))).code).toBe('conflict');
+    expect((await anna.getOrder(o.id)).statusHistory).toHaveLength(1);
+    // einzelne Arbeitsschritte im Abstand von Minuten → je eine Nachricht
     await admin.adminUpdateOrderStatus(o.id, 'confirmed');
+    t.advance(60_000);
     await admin.adminUpdateOrderStatus(o.id, 'picking');
+    t.advance(60_000);
     await admin.adminUpdateOrderStatus(o.id, 'ready');
+    t.advance(60_000);
     // Abholung kann nicht „unterwegs“ sein
     expect((await errorOf(admin.adminUpdateOrderStatus(o.id, 'out_for_delivery'))).code).toBe('conflict');
     const done = await admin.adminUpdateOrderStatus(o.id, 'picked_up');
@@ -143,6 +176,69 @@ describe('Bestell-Lebenszyklus', () => {
     expect((await errorOf(admin.adminUpdateOrderStatus(o.id, 'cancelled'))).code).toBe('conflict');
     const titles = (await anna.listNotifications()).map((n) => n.title);
     expect(titles).toEqual(expect.arrayContaining(['Bestellung bestätigt', 'Ihre Bestellung wird zusammengestellt', 'Ihre Bestellung liegt bereit', 'Danke für Ihren Einkauf']));
+  });
+
+  it('Mehrstufiger Sprung (Eingegangen → Abgeholt): Zwischenstufen im Verlauf, nur EINE Kundennachricht', async () => {
+    const t = createTestCore({ demoMode: false });
+    const anna = await t.as('u-anna');
+    const admin = await t.as('u-admin');
+    const slot = await firstFreeSlot(anna, 'pickup');
+    const o = await anna.placeOrder(checkout({ items: [{ productId: 'paulaner-hell', qty: 1 }], fulfillment: 'pickup', slotId: slot.id }));
+    const before = (await anna.listNotifications()).length;
+    const eventsBefore = t.events.length;
+    const done = await admin.adminUpdateOrderStatus(o.id, 'picked_up', 'Kunde stand an der Kasse');
+    expect(done.status).toBe('picked_up');
+    expect(done.statusHistory.map((h) => h.status)).toEqual(['pending', 'confirmed', 'picking', 'ready', 'picked_up']);
+    expect(done.statusHistory.slice(1).every((h) => h.by === 'Markt')).toBe(true);
+    expect(done.statusHistory.at(-1)?.note).toBe('Kunde stand an der Kasse');
+    expect(done.paymentStatus).toBe('paid');
+    const notes = await anna.listNotifications();
+    expect(notes.length - before).toBe(1);
+    expect(notes[0].title).toBe('Danke für Ihren Einkauf');
+    // genau ein order.updated für diese Bestellung (kein Flackern über Zwischenstände)
+    const updates = t.events.slice(eventsBefore).filter((x) => x.event.type === 'order.updated' && x.event.order.id === o.id);
+    expect(updates).toHaveLength(1);
+
+    // Lieferung: Eingegangen → Bereit (verladen) in einem Schritt
+    const d = await anna.placeOrder(checkout({ items: [{ productId: 'paulaner-hell', qty: 2 }], slotId: (await firstFreeSlot(anna, 'delivery')).id }));
+    const ready = await admin.adminUpdateOrderStatus(d.id, 'ready');
+    expect(ready.statusHistory.map((h) => h.status)).toEqual(['pending', 'confirmed', 'picking', 'ready']);
+    expect((await anna.listNotifications())[0].title).toBe('Ihre Bestellung ist verladen');
+  });
+
+  it('schrittweise nachgezogene Stufen (Oberfläche ruft je Stufe auf): nur die Meldung zum Endstatus bleibt', async () => {
+    const t = createTestCore({ demoMode: false });
+    const anna = await t.as('u-anna');
+    const admin = await t.as('u-admin');
+    const slot = await firstFreeSlot(anna, 'pickup');
+    const o = await anna.placeOrder(checkout({ items: [{ productId: 'paulaner-hell', qty: 1 }], fulfillment: 'pickup', slotId: slot.id }));
+    const before = (await anna.listNotifications()).length;
+    for (const s of ['confirmed', 'picking', 'ready', 'picked_up'] as const) {
+      await admin.adminUpdateOrderStatus(o.id, s);
+      t.advance(400);
+    }
+    const notes = await anna.listNotifications();
+    expect(notes.length - before).toBe(1);
+    expect(notes[0].title).toBe('Danke für Ihren Einkauf');
+    // bereits gelesene oder ältere Meldungen bleiben unangetastet
+    const o2 = await anna.placeOrder(checkout({ items: [{ productId: 'paulaner-hell', qty: 1 }], fulfillment: 'pickup', slotId: slot.id }));
+    await admin.adminUpdateOrderStatus(o2.id, 'confirmed');
+    await anna.markNotificationsRead();
+    await admin.adminUpdateOrderStatus(o2.id, 'picking');
+    const titles = (await anna.listNotifications()).filter((n) => n.link === `/bestellung/${o2.id}`).map((n) => n.title);
+    expect(titles).toEqual(['Ihre Bestellung wird zusammengestellt', 'Bestellung bestätigt']);
+  });
+
+  it('Sprung scheitert am Endstatus → keine halben Zwischenstände', async () => {
+    const t = createTestCore({ demoMode: false });
+    const admin = await t.as('u-admin');
+    // Annas Bestellung auf der (geplanten) Tour 1 ist „bereit“; ein Auftrag im Status bestätigt aus Tour 3
+    const o = t.db().orders.find((x) => x.tourId === 't-3' && x.status === 'confirmed')!;
+    const err = await errorOf(admin.adminUpdateOrderStatus(o.id, 'delivered'));
+    expect(err.code).toBe('conflict');
+    const after = t.db().orders.find((x) => x.id === o.id)!;
+    expect(after.status).toBe('confirmed');
+    expect(after.statusHistory.at(-1)?.status).toBe('confirmed');
   });
 
   it('Zustellung: Leergut-Konto, Treuepunkte, Zahlstatus', async () => {

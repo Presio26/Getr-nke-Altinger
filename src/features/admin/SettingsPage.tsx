@@ -7,6 +7,7 @@ import { api } from '@/api/client';
 import { useBootstrapActions, useSettings } from '@/api/hooks';
 import { cn } from '@/lib/cn';
 import { Button, ConfirmModal, PageHeader, Tabs, errorMessage, toast } from '@/components/ui';
+import { StickyActionBar } from '@/components/layout/StickyActionBar';
 import { useUrlState } from './master/lib';
 import { draftSignature, fromSettings, toSettings, validateSettingsDraft, type SettingsDraft, type SettingsTab } from './master/settings/settingsDraft';
 import { HoursSection, RulesSection, StoreSection } from './master/settings/GeneralSections';
@@ -98,6 +99,28 @@ export default function SettingsPage() {
     </span>
   );
 
+  const saveBar = (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <p className="min-w-0 flex-1 text-sm">
+        <span className="font-semibold text-slate-900">Ungespeicherte Änderungen</span>
+        {errorCount ? (
+          <span className="text-red-600"> · {errorCount === 1 ? '1 Angabe ist ungültig' : `${errorCount} Angaben sind ungültig`}</span>
+        ) : (
+          <span className="hidden text-slate-500 sm:inline"> · werden erst nach dem Speichern im Shop wirksam</span>
+        )}
+      </p>
+      <div className="flex gap-2 max-sm:w-full max-sm:[&>*]:flex-1">
+        <Button variant="ghost" icon={RotateCcw} onClick={discard} disabled={saving}>
+          Verwerfen
+        </Button>
+        <Button icon={Save} onClick={() => void save()} loading={saving}>
+          <span className="sm:hidden">Speichern</span>
+          <span className="max-sm:hidden">Einstellungen speichern</span>
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <PageHeader title="Einstellungen" documentTitle="Einstellungen · Markt" subtitle="Stammdaten des Markts, Öffnungszeiten, Zeitfenster, Liefergebiete und Gutscheine" />
@@ -150,6 +173,11 @@ export default function SettingsPage() {
                 setBase(fresh);
                 setDraft(fromSettings(fresh));
               }}
+              onSettingsSaved={(saved) => {
+                // nur die Basis aktualisieren – ungespeicherte Änderungen anderer Bereiche bleiben erhalten
+                setBase(saved);
+                if (!dirty) setDraft(fromSettings(saved));
+              }}
             />
           ) : null}
 
@@ -160,26 +188,12 @@ export default function SettingsPage() {
       </div>
 
       {dirty ? (
-        <div className="sticky bottom-0 z-20 -mx-4 mt-6 border-t border-slate-200 bg-white/95 pb-safe-4 pl-16 pr-4 pt-3 shadow-bar backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <p className="min-w-0 flex-1 text-sm">
-              <span className="font-semibold text-slate-900">Ungespeicherte Änderungen</span>
-              {errorCount ? (
-                <span className="text-red-600"> · {errorCount === 1 ? '1 Angabe ist ungültig' : `${errorCount} Angaben sind ungültig`}</span>
-              ) : (
-                <span className="hidden text-slate-500 sm:inline"> · werden erst nach dem Speichern im Shop wirksam</span>
-              )}
-            </p>
-            <div className="flex gap-2">
-              <Button variant="ghost" icon={RotateCcw} onClick={discard} disabled={saving}>
-                Verwerfen
-              </Button>
-              <Button icon={Save} onClick={() => void save()} loading={saving}>
-                Einstellungen speichern
-              </Button>
-            </div>
-          </div>
-        </div>
+        <>
+          {/* Handy/Tablet: feste Aktionsleiste */}
+          <StickyActionBar offset="none">{saveBar}</StickyActionBar>
+          {/* Desktop: am Seitenende mitlaufend */}
+          <div className="sticky bottom-0 z-20 -mx-8 mt-6 hidden border-t border-slate-200 bg-white/95 px-8 pb-safe-4 pt-3 shadow-bar backdrop-blur lg:block">{saveBar}</div>
+        </>
       ) : null}
 
       <ConfirmModal

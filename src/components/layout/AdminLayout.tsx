@@ -16,6 +16,7 @@ import {
   Route,
   Settings,
   ShoppingBag,
+  Sparkles,
   Store,
   Users,
   type LucideIcon,
@@ -27,10 +28,12 @@ import { qk } from '@/api/hooks';
 import { useSession } from '@/stores/session';
 import { useUi } from '@/stores/ui';
 import { cn } from '@/lib/cn';
-import { useDocumentTitle } from '@/lib/hooks';
+import { useFallbackDocumentTitle } from '@/lib/hooks';
 import { Logo } from '@/components/brand/Logo';
 import { Drawer, IconButton, PageLoader } from '@/components/ui';
+import { useDemoTripleTap } from '@/components/demo/useDemoTripleTap';
 import { AccountMenu } from './AccountMenu';
+import { ConnectionBanner } from './ConnectionBanner';
 import { NotificationBell } from './NotificationBell';
 import { ConnectionIndicator } from './StatusIndicators';
 
@@ -164,6 +167,7 @@ function SidebarNav({ collapsed, theme, onNavigate }: { collapsed: boolean; them
 
 function SidebarFooter({ collapsed, theme, onNavigate }: { collapsed: boolean; theme: 'dark' | 'light'; onNavigate?: () => void }) {
   const dark = theme === 'dark';
+  const setDemoOpen = useUi((s) => s.setDemoOpen);
   const cls = cn(
     'flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors',
     collapsed && 'justify-center px-0',
@@ -179,6 +183,20 @@ function SidebarFooter({ collapsed, theme, onNavigate }: { collapsed: boolean; t
         <BookOpen size={18} aria-hidden />
         {!collapsed ? 'Demo-Leitfaden' : null}
       </Link>
+      {/* Demo-Umschalter hier statt als schwebende Pille über Kartenknöpfen (z. B. „Folgen“ auf der Live-Karte) */}
+      <button
+        type="button"
+        className={cn(cls, 'w-full text-left')}
+        onClick={() => {
+          onNavigate?.();
+          setDemoOpen(true);
+        }}
+        title={collapsed ? 'Rollen wechseln (Demo)' : undefined}
+        aria-label={collapsed ? 'Rollen wechseln (Demo)' : undefined}
+      >
+        <Sparkles size={18} aria-hidden className={dark ? 'text-accent-400' : 'text-accent-500'} />
+        {!collapsed ? 'Rollen wechseln (Demo)' : null}
+      </button>
     </div>
   );
 }
@@ -195,8 +213,10 @@ export function AdminLayout() {
     () => [...ALL_ITEMS].sort((a, b) => b.to.length - a.to.length).find((i) => (i.end ? pathname === i.to : pathname.startsWith(i.to))),
     [pathname],
   );
-  useDocumentTitle(current ? `${current.label} · Markt` : 'Markt-Dashboard');
+  // Rückfall-Titel; Seiten-Titel haben Vorrang, „· Markt · Getränke Altinger“ hängt useDocumentTitle an
+  useFallbackDocumentTitle(current?.label ?? 'Dashboard');
   useEffect(() => setMobileOpen(false), [pathname, setMobileOpen]);
+  const onLogoClick = useDemoTripleTap();
 
   const width = collapsed ? 'lg:w-[4.75rem]' : 'lg:w-64';
   const pad = collapsed ? 'lg:pl-[4.75rem]' : 'lg:pl-64';
@@ -206,7 +226,7 @@ export function AdminLayout() {
       {/* Seitenleiste Desktop */}
       <aside className={cn('fixed inset-y-0 left-0 z-30 hidden flex-col bg-brand-950 text-white transition-[width] duration-200 lg:flex', width)}>
         <div className={cn('flex h-16 shrink-0 items-center border-b border-white/10', collapsed ? 'justify-center px-2' : 'px-5')}>
-          <Link to="/admin" aria-label="Markt-Dashboard" className="rounded-xl">
+          <Link to="/admin" aria-label="Markt-Dashboard" onClick={onLogoClick} className="rounded-xl">
             {collapsed ? <Logo variant="mark" className="h-10" /> : <Logo variant="white" className="h-10" />}
           </Link>
         </div>
@@ -221,7 +241,8 @@ export function AdminLayout() {
       </Drawer>
 
       <div className={cn('flex min-h-dvh min-w-0 flex-col transition-[padding] duration-200', pad)}>
-        <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 pt-safe backdrop-blur-md">
+        <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 pt-safe backdrop-blur-md">
+          <ConnectionBanner />
           <div className="flex h-16 items-center gap-2 px-3 sm:px-5 lg:px-6">
             <IconButton icon={Menu} label="Navigation öffnen" className="lg:hidden" onClick={() => setMobileOpen(true)} />
             <span className="hidden lg:block">
@@ -231,7 +252,7 @@ export function AdminLayout() {
                 onClick={() => setCollapsed(!collapsed)}
               />
             </span>
-            <Link to="/admin" className="hidden sm:block lg:hidden" aria-label="Markt-Dashboard">
+            <Link to="/admin" className="hidden sm:block lg:hidden" aria-label="Markt-Dashboard" onClick={onLogoClick}>
               <Logo variant="mark" className="h-9" />
             </Link>
             <div className="ml-1 min-w-0 flex-1">
@@ -248,7 +269,8 @@ export function AdminLayout() {
             <AccountMenu compact />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+        {/* unten Platz für eine feste Aktionsleiste (StickyActionBar, --sticky-bar-h) */}
+        <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 pb-[calc(var(--sticky-bar-h)+1.25rem)] pt-5 sm:px-6 sm:pb-[calc(var(--sticky-bar-h)+1.75rem)] sm:pt-7 lg:px-8">
           <Suspense fallback={<PageLoader />}>
             <Outlet />
           </Suspense>

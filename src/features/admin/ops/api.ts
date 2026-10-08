@@ -5,7 +5,7 @@
 import { useEffect } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AdminOrderQuery } from '@shared/api';
-import type { DayString, ID, Order, OrderStatus, TourInput } from '@shared/types';
+import type { DayString, EmptiesLine, ID, Order, OrderStatus, TourInput } from '@shared/types';
 import { orderStatusLabel } from '@shared/format';
 import { api } from '@/api/client';
 import { qk, useApiMutation } from '@/api/hooks';
@@ -68,6 +68,8 @@ export interface StatusVars {
   order: Order;
   to: OrderStatus;
   note?: string;
+  /** tatsächlich angenommenes Leergut (bei „Abgeholt“/„Zugestellt“) */
+  emptiesCollected?: EmptiesLine[];
 }
 
 /**
@@ -77,11 +79,14 @@ export interface StatusVars {
 export function useOrderStatus(options: { success?: boolean } = {}) {
   const qc = useQueryClient();
   return useApiMutation(
-    async ({ order, to, note }: StatusVars) => {
+    async ({ order, to, note, emptiesCollected }: StatusVars) => {
       const path = pathTo(order, to) ?? [to];
       let current = order;
       for (const step of path) {
-        current = await api.adminUpdateOrderStatus(current.id, step, step === to ? note : undefined);
+        current =
+          step === to && emptiesCollected
+            ? await api.adminUpdateOrderStatus(current.id, step, note, emptiesCollected)
+            : await api.adminUpdateOrderStatus(current.id, step, step === to ? note : undefined);
       }
       return current;
     },

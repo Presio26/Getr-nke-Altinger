@@ -21,7 +21,13 @@ function RoleRedirect({ to, message }: { to: string; message: string | null }) {
   useEffect(() => {
     if (message) toast.info(message, { id: 'role-redirect' });
   }, [message]);
-  return <Navigate to={to} replace />;
+  // Ladeanzeige bis zur Zielseite: kein kurz aufblitzender Footer (Layout-Shift)
+  return (
+    <>
+      <Navigate to={to} replace />
+      <PageLoader />
+    </>
+  );
 }
 
 /**
@@ -38,7 +44,12 @@ export function RequireRole({ roles, children }: RequireRoleProps) {
   if (status === 'loading') return <PageLoader />;
   if (status !== 'authenticated' || !role) {
     const next = `${location.pathname}${location.search}${location.hash}`;
-    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+    return (
+      <>
+        <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
+        <PageLoader />
+      </>
+    );
   }
   if (!roles.includes(role)) {
     const allowed = roles.map((r) => AUDIENCE[r]).join(' und ');

@@ -169,14 +169,13 @@ export function validateDraft(d: ProductDraft, categories: Category[]): DraftErr
   }
 
   const seen = new Set<number>();
-  const listNet = price !== null ? netFromGross(price, d.vatRate) : null;
   for (const t of d.tiers) {
     const q = parseIntInput(t.minQty);
     const n = parseEuro(t.priceNet);
     if (q === null || q < 2) e[`tier-${t.key}`] = 'Ab-Menge mindestens 2.';
     else if (seen.has(q)) e[`tier-${t.key}`] = `Die Staffel ab ${q} gibt es doppelt.`;
     else if (n === null || n <= 0) e[`tier-${t.key}`] = 'Bitte einen gültigen Netto-Preis angeben.';
-    else if (listNet !== null && n >= listNet) e[`tier-${t.key}`] = 'Der Staffelpreis muss unter dem Listen-Netto liegen.';
+    // Staffelpreis über dem Listen-Netto: nur Hinweis (siehe tierWarnings) – der günstigste Preis gewinnt ohnehin
     if (q !== null) seen.add(q);
   }
 
@@ -187,6 +186,34 @@ export function validateDraft(d: ProductDraft, categories: Category[]): DraftErr
   if (!HEX_RE.test(d.color)) e.color = 'Hex-Farbe, z. B. #8C1D18.';
   if (!HEX_RE.test(d.accent)) e.accent = 'Hex-Farbe, z. B. #E5C07B.';
   return e;
+}
+
+/**
+ * Hinweise (blockieren das Speichern nicht): Staffelpreise, die nicht unter dem Listen-Netto liegen,
+ * bringen Geschäftskunden keinen Vorteil – es gilt dann der Listen- bzw. Rabattpreis.
+ */
+export function tierWarnings(d: ProductDraft): Record<string, string> {
+  const price = parseEuro(d.price);
+  if (price === null || price <= 0) return {};
+  const listNet = netFromGross(price, d.vatRate);
+  const out: Record<string, string> = {};
+  for (const t of d.tiers) {
+    const n = parseEuro(t.priceNet);
+    if (n !== null && n > 0 && n >= listNet) out[t.key] = 'Liegt nicht unter dem Listen-Netto – wirkt erst, wenn Sie ihn senken (sonst gilt der günstigere Listenpreis).';
+  }
+  return out;
+}
+
+/** Staffelpreise im Verhältnis zur Preisänderung anpassen (Listen-Netto alt → neu) */
+export function scaleTiers(tiers: TierDraft[], fromListNet: number, toListNet: number): TierDraft[] {
+  if (fromListNet <= 0 || toListNet <= 0) return tiers;
+  const f = toListNet / fromListNet;
+  return tiers.map((t) => {
+    const n = parseEuro(t.priceNet);
+    if (n === null || n <= 0) return t;
+    const scaled = Math.max(1, Math.round(n * f));
+    return { ...t, priceNet: (scaled / 100).toFixed(2).replace('.', ',') };
+  });
 }
 
 /** Entwurf → ProductInput (setzt gültige Eingaben voraus) */

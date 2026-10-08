@@ -130,5 +130,7 @@ export function buildSettings(): StoreSettings {
       },
     ],
     announcement: 'Neu: Verfolgen Sie Ihre Lieferung live auf der Karte!',
+    // geführte Vorführung: der Markt bestätigt selbst (Schalter im Demo-Leitfaden bzw. in den Einstellungen)
+    demoAutoConfirm: false,
   };
 }

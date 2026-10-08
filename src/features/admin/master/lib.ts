@@ -203,9 +203,15 @@ export interface CustomerFigures {
   orders: number;
   revenue: number;
   lastOrderAt?: string;
-  /** offene Posten: unbezahlte Rechnungen + noch nicht abgerechnete Rechnungs-/SEPA-Bestellungen */
+  /** Offene Posten: unbezahlte Rechnungen (offen + überfällig) – wie im B2B-Portal */
   openAmount: number;
+  /** Anzahl unbezahlter Rechnungen */
+  openCount: number;
   overdueAmount: number;
+  /** noch nicht abgerechnete Rechnungs-/SEPA-Bestellungen (geliefert oder noch offen) */
+  unbilledAmount: number;
+  /** Kreditrahmen-Auslastung = Offene Posten + noch nicht abgerechnete Lieferungen (wie die Kreditprüfung im Core) */
+  creditUsed: number;
   depositCount: number;
   depositValue: number;
   /** gelieferte, noch nicht abgerechnete Rechnungs-Bestellungen */
@@ -214,7 +220,7 @@ export interface CustomerFigures {
 }
 
 export function emptyFigures(): CustomerFigures {
-  return { orders: 0, revenue: 0, openAmount: 0, overdueAmount: 0, depositCount: 0, depositValue: 0, billableCount: 0, billableAmount: 0 };
+  return { orders: 0, revenue: 0, openAmount: 0, openCount: 0, overdueAmount: 0, unbilledAmount: 0, creditUsed: 0, depositCount: 0, depositValue: 0, billableCount: 0, billableAmount: 0 };
 }
 
 /** Kennzahlen je Kunde aus Bestellungen, Rechnungen und Leergut-Konto */
@@ -240,7 +246,7 @@ export function customerFigures(
       f.revenue += orderRevenue(o);
       if (!f.lastOrderAt || o.createdAt > f.lastOrderAt) f.lastOrderAt = o.createdAt;
     }
-    if (isUnbilledCredit(o)) f.openAmount += o.totals.total;
+    if (isUnbilledCredit(o)) f.unbilledAmount += o.totals.total;
     if (isBillable(o)) {
       f.billableCount += 1;
       f.billableAmount += o.totals.total;
@@ -250,8 +256,10 @@ export function customerFigures(
     const f = map.get(inv.customerId);
     if (!f || inv.status === 'paid') continue;
     f.openAmount += inv.gross;
+    f.openCount += 1;
     if (inv.status === 'overdue') f.overdueAmount += inv.gross;
   }
+  for (const f of map.values()) f.creditUsed = f.openAmount + f.unbilledAmount;
   return map;
 }
 

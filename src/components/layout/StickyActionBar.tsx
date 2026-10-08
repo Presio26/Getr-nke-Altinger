@@ -1,6 +1,6 @@
 /**
  * Feste Aktionsleiste für Mobilgeräte (z. B. Summe + "Zur Kasse"), direkt über der
- * Tab-Leiste angedockt. Die Leiste meldet ihre Höhe als CSS-Variable `--sticky-bar-h`
+ * Tab-Leiste angedockt (ab md gibt es keine Tab-Leiste – dann sitzt sie am unteren Rand). Die Leiste meldet ihre Höhe als CSS-Variable `--sticky-bar-h`
  * am <html>-Element, damit Layout (Footer-Abstand), Demo-Pille und Toasts ausweichen
  * können. Immer diese Komponente statt eigener `fixed bottom-…`-Leisten verwenden.
  */
@@ -45,11 +45,18 @@ export function StickyActionBar({ children, offset = 'tabbar', desktop = false, 
       ref={ref}
       data-sticky-action-bar=""
       className={cn(
-        'fixed inset-x-0 z-[35] border-t border-slate-200/80 bg-white/95 px-4 py-2.5 shadow-bar backdrop-blur-md',
-        offset === 'tabbar' ? 'bottom-[calc(env(safe-area-inset-bottom)+4rem)]' : 'bottom-0 pb-safe-4',
+        'fixed inset-x-0 z-[35] border-t border-slate-200/80 bg-white/95 px-4 pt-2.5 shadow-bar backdrop-blur-md',
+        offset === 'tabbar' ? 'bottom-[var(--tabbar-h)]' : 'bottom-0',
         !desktop && 'lg:hidden',
         className,
       )}
+      // Tab-Leiste vorhanden (mobil): sie trägt die Safe-Area; sonst (ab md bzw. offset 'none') die Leiste selbst
+      style={{
+        paddingBottom:
+          offset === 'tabbar'
+            ? 'max(0.625rem, calc(env(safe-area-inset-bottom) + 0.625rem - var(--tabbar-h)))'
+            : 'calc(env(safe-area-inset-bottom) + 0.75rem)',
+      }}
     >
       <div className="mx-auto max-w-3xl">{children}</div>
     </div>

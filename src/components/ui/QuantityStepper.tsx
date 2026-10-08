@@ -16,8 +16,9 @@ export interface QuantityStepperProps {
   disabled?: boolean;
 }
 
+// Touch-Ziele: auch "sm" hat 40 × 40 px große Minus-/Plus-Knöpfe (42 px inkl. Rahmen) (Produktkarten, Angebote, Fest-Vorschläge)
 const SIZES = {
-  sm: { wrap: 'h-9 rounded-xl', btn: 'w-9', input: 'w-9 text-sm', icon: 15 },
+  sm: { wrap: 'h-[42px] rounded-xl', btn: 'w-10', input: 'w-10 text-sm', icon: 16 },
   md: { wrap: 'h-11 rounded-xl', btn: 'w-11', input: 'w-11 text-base', icon: 17 },
   lg: { wrap: 'h-13 rounded-2xl', btn: 'w-13', input: 'w-14 text-lg', icon: 20 },
 } as const;
@@ -53,7 +54,8 @@ export function QuantityStepper({
   return (
     <div
       className={cn(
-        'inline-flex select-none items-stretch overflow-hidden border border-slate-200 bg-white shadow-xs',
+        // shrink-0: in engen Flex-Zeilen (z. B. neben Schiebereglern) nie zusammengedrückt
+        'inline-flex shrink-0 select-none items-stretch overflow-hidden border border-slate-200 bg-white shadow-xs',
         s.wrap,
         disabled && 'opacity-50',
         className,
@@ -65,7 +67,7 @@ export function QuantityStepper({
         disabled={disabled || value <= min}
         onClick={() => onChange(clamp(value - 1))}
         className={cn(
-          'flex items-center justify-center text-slate-600 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent',
+          'flex shrink-0 items-center justify-center text-slate-600 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent',
           showTrash && 'text-red-600 hover:bg-red-50',
           s.btn,
         )}
@@ -94,7 +96,7 @@ export function QuantityStepper({
         }}
         onFocus={(e) => e.target.select()}
         className={cn(
-          'border-x border-slate-100 bg-transparent text-center font-semibold tabular-nums text-slate-900 focus:bg-brand-50/50 focus:outline-none',
+          'min-w-0 shrink-0 border-x border-slate-100 bg-transparent text-center font-semibold tabular-nums text-slate-900 focus:bg-brand-50/50 focus:outline-none',
           s.input,
         )}
       />
@@ -104,7 +106,7 @@ export function QuantityStepper({
         disabled={disabled || value >= max}
         onClick={() => onChange(clamp(value + 1))}
         className={cn(
-          'flex items-center justify-center text-brand-700 transition-colors hover:bg-brand-50 active:bg-brand-100 disabled:text-slate-300 disabled:hover:bg-transparent',
+          'flex shrink-0 items-center justify-center text-brand-700 transition-colors hover:bg-brand-50 active:bg-brand-100 disabled:text-slate-300 disabled:hover:bg-transparent',
           s.btn,
         )}
       >

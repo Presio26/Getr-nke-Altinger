@@ -16,7 +16,7 @@ import { useNow } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDriverPosition, usePositions } from '@/stores/positions';
-import { Avatar, Badge, Button, EmptyState, ErrorState, SegmentedControl, Skeleton, Switch, errorMessage, toast, type BadgeTone } from '@/components/ui';
+import { Avatar, Badge, Button, ConfirmModal, EmptyState, ErrorState, SegmentedControl, Skeleton, Switch, errorMessage, toast, type BadgeTone } from '@/components/ui';
 import { BaseMap, StoreMarker, ZoneCircles, toLatLng } from '@/components/map';
 import { useAdminDrivers, useAdminTours } from './ops/api';
 import { DEFAULT_SIM_SPEED, firstName, formatAgo, minutesUntil } from './ops/model';
@@ -25,6 +25,24 @@ import { LiveDriverMarker, TourLayer, useDriversAway } from './ops/components/Fl
 
 const DRIVER_TONE: Record<Driver['status'], BadgeTone> = { off: 'neutral', available: 'success', on_tour: 'brand', break: 'warning' };
 const SPEEDS = [4, 8, 16];
+
+/** Text zu den Optionen einer (laufenden oder geplanten) Simulation */
+function simOptionsText(speed: number, autoComplete: boolean, manualNames: string[] = []): string {
+  const stops = !autoComplete
+    ? 'Stopps schließt der Fahrer selbst ab'
+    : manualNames.length
+      ? `Stopps werden automatisch zugestellt – außer ${manualNames.join(', ')} (Fahrer schließt ab)`
+      : 'Stopps werden automatisch zugestellt';
+  return `Zeitraffer ${speed}× · ${stops}`;
+}
+
+/** Laufende Simulation einer Tour als Text (tatsächliche Optionen) */
+function runningSimText(t: TourWithOrders): string {
+  const sim = t.simulation;
+  if (!sim) return '';
+  const manual = (sim.manualOrderIds ?? []).map((id) => t.orders.find((o) => o.id === id)?.customerName ?? id);
+  return simOptionsText(sim.speedFactor, sim.autoComplete, manual);
+}
 
 /** aktuelle bzw. nächste Tour eines Fahrers */
 function tourFor(driverId: string, tours: TourWithOrders[]): TourWithOrders | undefined {
@@ -214,6 +232,8 @@ export default function LiveMapPage() {
   const [showZones, setShowZones] = useState(false);
   const [showPlanned, setShowPlanned] = useState(true);
   const [speed, setSpeed] = useState(String(DEFAULT_SIM_SPEED));
+  const [autoComplete, setAutoComplete] = useState(true);
+  const [confirmStart, setConfirmStart] = useState(false);
   const [busyTour, setBusyTour] = useState<string | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const colors = useMemo(() => new Map((drivers ?? []).map((d) => [d.id, d.color])), [drivers]);
@@ -230,14 +250,16 @@ export default function LiveMapPage() {
 
   const simOne = useMutation({
     mutationFn: async ({ tour, stop }: { tour: TourWithOrders; stop?: boolean }) =>
-      stop ? api.stopSimulation(tour.id) : api.simulateTour(tour.id, { speedFactor: Number(speed), autoComplete: true }),
+      stop ? api.stopSimulation(tour.id) : api.simulateTour(tour.id, { speedFactor: Number(speed), autoComplete }),
     onMutate: ({ tour }) => setBusyTour(tour.id),
     onSettled: () => setBusyTour(null),
     onSuccess: async (t, { stop }) => {
       await qc.invalidateQueries({ queryKey: qk.admin });
       if (stop) toast.success(`Simulation „${t.name}“ gestoppt`);
       else {
-        toast.success(`Simulation „${t.name}“ läuft`, { description: `Zeitraffer ${speed}× · Stopps werden automatisch zugestellt.` });
+        toast.success(`Simulation „${t.name}“ läuft`, {
+          description: `${t.simulation ? simOptionsText(t.simulation.speedFactor, t.simulation.autoComplete) : simOptionsText(Number(speed), autoComplete)}.`,
+        });
         setFollow(t.driverId);
       }
     },
@@ -248,17 +270,24 @@ export default function LiveMapPage() {
     mutationFn: async (stop: boolean) => {
       const list = stop ? running : startable;
       const results = await Promise.allSettled(
-        list.map((t) => (stop ? api.stopSimulation(t.id) : api.simulateTour(t.id, { speedFactor: Number(speed), autoComplete: true }))),
+        list.map((t) => (stop ? api.stopSimulation(t.id) : api.simulateTour(t.id, { speedFactor: Number(speed), autoComplete }))),
       );
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
       return { ok: results.length - failed.length, failed: failed.map((f) => errorMessage(f.reason)) };
     },
     onSuccess: async ({ ok, failed }, stop) => {
+      setConfirmStart(false);
       await qc.invalidateQueries({ queryKey: qk.admin });
-      if (ok) toast.success(stop ? `${ok} ${ok === 1 ? 'Simulation' : 'Simulationen'} gestoppt` : `${ok} ${ok === 1 ? 'Tour fährt' : 'Touren fahren'} jetzt im Zeitraffer ${speed}×`);
+      if (ok)
+        toast.success(stop ? `${ok} ${ok === 1 ? 'Simulation' : 'Simulationen'} gestoppt` : `${ok} ${ok === 1 ? 'Tour fährt' : 'Touren fahren'} jetzt los`, {
+          description: stop ? undefined : `${simOptionsText(Number(speed), autoComplete)}.`,
+        });
       if (failed.length) toast.warning(`${failed.length} nicht möglich`, { description: failed[0] });
     },
-    onError: (err) => toast.error(errorMessage(err)),
+    onError: (err) => {
+      setConfirmStart(false);
+      toast.error(errorMessage(err));
+    },
   });
 
   const focusDriver = (d: Driver) => {
@@ -274,7 +303,7 @@ export default function LiveMapPage() {
   return (
     <div className="-mx-4 -my-5 flex flex-col sm:-mx-6 sm:-my-7 lg:-mx-8 lg:h-[calc(100dvh-4rem-1px-env(safe-area-inset-top))] lg:flex-row">
       {/* Karte */}
-      <div className="relative h-[58dvh] min-h-80 lg:order-2 lg:h-auto lg:flex-1">
+      <div className="relative isolate h-[58dvh] min-h-80 lg:order-2 lg:h-auto lg:flex-1">
         <BaseMap fitTo={fit} fitPadding={56} maxFitZoom={15} onReady={(m) => (mapRef.current = m)}>
           {showZones ? <ZoneCircles zones={settings.zones} /> : null}
           <StoreMarker>
@@ -338,37 +367,59 @@ export default function LiveMapPage() {
             </div>
           </div>
 
-          <section className="rounded-2xl border border-accent-200 bg-gradient-to-br from-accent-50 to-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,.05)]">
+          <section className="rounded-2xl border border-accent-200 bg-gradient-to-br from-accent-50 to-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,.05)]" aria-label="Demo-Simulation">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-500 text-brand-950">
                 <Truck size={16} aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-slate-900">Demo-Simulation</p>
-                <p className="text-xs text-slate-600">Touren fahren im Zeitraffer, Stopps werden automatisch zugestellt.</p>
+                <p className="text-xs text-slate-600">{running.length ? `${running.length} ${running.length === 1 ? 'Simulation läuft' : 'Simulationen laufen'}` : 'Touren fahren im Zeitraffer entlang der Route.'}</p>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <SegmentedControl aria-label="Zeitraffer" size="sm" value={speed} onChange={setSpeed} options={SPEEDS.map((s) => ({ value: String(s), label: `${s}×` }))} />
-              {running.length ? (
-                <Button size="sm" variant="outline" icon={Square} loading={simAll.isPending} onClick={() => simAll.mutate(true)} className="flex-1">
-                  {running.length === 1 ? 'Simulation stoppen' : `Alle ${running.length} stoppen`}
-                </Button>
-              ) : null}
-              {startable.length || !running.length ? (
-                <Button
-                  size="sm"
-                  variant="accent"
-                  icon={Play}
-                  loading={simAll.isPending}
-                  disabled={!startable.length}
-                  onClick={() => simAll.mutate(false)}
-                  className="flex-1"
-                  title={startable.length ? undefined : 'Für heute gibt es keine Tour, die gestartet werden kann'}
-                >
-                  {startable.length ? `${startable.length} ${startable.length === 1 ? 'Tour' : 'Touren'} starten` : 'Keine Tour geplant'}
-                </Button>
-              ) : null}
+            {running.length ? (
+              <ul className="mt-2.5 space-y-1.5" aria-label="Laufende Simulationen">
+                {running.map((t) => (
+                  <li key={t.id} className="rounded-xl bg-white/80 px-2.5 py-1.5 text-xs ring-1 ring-inset ring-accent-200/70">
+                    <p className="flex items-center gap-1.5 font-semibold text-slate-800">
+                      <LiveDot tone="accent" className="scale-75" />
+                      <span className="truncate">{t.name}</span>
+                      {t.driver ? <span className="shrink-0 font-normal text-slate-500">· {firstName(t.driver.name)}</span> : null}
+                    </p>
+                    <p className="mt-0.5 text-slate-600">{runningSimText(t)}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="mt-3 space-y-2">
+              {running.length && startable.length ? <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Für neue Simulationen</p> : null}
+              <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2', running.length && !startable.length && 'hidden')}>
+                <SegmentedControl aria-label="Zeitraffer" size="sm" value={speed} onChange={setSpeed} options={SPEEDS.map((v) => ({ value: String(v), label: `${v}×` }))} />
+                <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+                  <Switch checked={autoComplete} onChange={setAutoComplete} ariaLabel="Stopps automatisch zustellen" />
+                  Stopps automatisch zustellen
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {running.length ? (
+                  <Button size="sm" variant="outline" icon={Square} loading={simAll.isPending && !confirmStart} onClick={() => simAll.mutate(true)} className="flex-1">
+                    {running.length === 1 ? 'Simulation stoppen' : `Alle ${running.length} stoppen`}
+                  </Button>
+                ) : null}
+                {startable.length || !running.length ? (
+                  <Button
+                    size="sm"
+                    variant="accent"
+                    icon={Play}
+                    disabled={!startable.length || simAll.isPending}
+                    onClick={() => setConfirmStart(true)}
+                    className="flex-1"
+                    title={startable.length ? undefined : 'Für heute gibt es keine Tour, die gestartet werden kann'}
+                  >
+                    {startable.length ? (startable.length === 1 ? '1 Tour starten …' : `Alle ${startable.length} Touren starten …`) : 'Keine Tour geplant'}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </section>
 
@@ -408,6 +459,30 @@ export default function LiveMapPage() {
           </p>
         </div>
       </aside>
+
+      <ConfirmModal
+        open={confirmStart}
+        onClose={() => setConfirmStart(false)}
+        onConfirm={() => simAll.mutate(false)}
+        loading={simAll.isPending}
+        title={startable.length === 1 ? 'Tour jetzt starten?' : `${startable.length} Touren jetzt starten?`}
+        message={
+          <>
+            <span className="block space-y-0.5">
+              {startable.map((t) => (
+                <span key={t.id} className="block font-medium text-slate-800">
+                  • {t.name}
+                  {t.driver ? <span className="font-normal text-slate-500"> – {firstName(t.driver.name)}, {t.stops.length} Stopps</span> : null}
+                </span>
+              ))}
+            </span>
+            <span className="mt-2 block">
+              {simOptionsText(Number(speed), autoComplete)}. Alle Kunden dieser Touren erhalten sofort die Nachricht „Ihre Lieferung ist unterwegs“.
+            </span>
+          </>
+        }
+        confirmLabel={startable.length === 1 ? 'Tour starten' : 'Touren starten'}
+      />
     </div>
   );
 }

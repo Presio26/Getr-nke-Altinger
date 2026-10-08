@@ -381,7 +381,9 @@ describe('pending-b2b-gets-b2b-prices', () => {
     const fake = t.api(session.token);
     const guestQuote = await t.api().quote(checkout({ items: [{ productId: 'paulaner-hell', qty: 25 }], fulfillment: 'pickup' }));
     const fakeQuote = await fake.quote(checkout({ items: [{ productId: 'paulaner-hell', qty: 25 }], fulfillment: 'pickup' }));
-    expect(fakeQuote.totals.itemsGross).toBe(guestQuote.totals.itemsGross);
+    // gleiche Positionspreise wie Privatkunden (Geschäftskonten rechnen die Summen auf Netto-Basis → ±1 Cent)
+    expect(fakeQuote.lines.map((l) => [l.unitGross, l.lineGross])).toEqual(guestQuote.lines.map((l) => [l.unitGross, l.lineGross]));
+    expect(Math.abs(fakeQuote.totals.itemsGross - guestQuote.totals.itemsGross)).toBeLessThanOrEqual(1);
     expect(fakeQuote.lines[0].priceNote).toBeUndefined();
     expect(fakeQuote.warnings.map((w) => w.code)).toContain('business_pending');
   });
@@ -426,15 +428,17 @@ describe('deposit-not-vat-taxed', () => {
       checkout({ items, fulfillment: 'pickup', paymentMethod: 'invoice', emptiesReturn: [{ depositTypeId: 'kasten-bier-20', qty: 2 }] }),
       qctx({ customer: customer('c-gasthaus'), openAmount: 0 }),
     );
-    const order = { lines: q.lines, totals: q.totals } as Order;
+    const order = { customerType: 'b2b', lines: q.lines, totals: q.totals } as Order;
     const inv = invoiceTotals([order, order]);
-    expect(inv.gross).toBe(2 * q.totals.total);
-    expect(inv.vat).toBe(2 * q.totals.vat);
-    expect(inv.deposit).toBe(Math.round((2 * 3100 * 100) / 119));
-    expect(inv.depositRefund).toBe(Math.round((2 * 620 * 100) / 119));
+    // Netto je Satz = Summe der Bestellungen, MwSt. einmal auf die Rechnungssumme (19 % von Netto, centgenau)
+    expect(inv.vatBreakdown).toEqual([{ rate: 19, net: 2 * q.totals.vatBreakdown![0].net, vat: Math.round((2 * q.totals.vatBreakdown![0].net * 19) / 100) }]);
+    expect(inv.vat).toBe(inv.vatBreakdown![0].vat);
+    expect(Math.abs(inv.gross - 2 * q.totals.total)).toBeLessThanOrEqual(1);
+    expect(inv.deposit).toBe(2 * Math.round((3100 * 100) / 119));
+    expect(inv.depositRefund).toBe(2 * Math.round((620 * 100) / 119));
     expect(inv.net + inv.vat + inv.deposit - inv.depositRefund).toBe(inv.gross);
-    // Nettobetrag = Warenwert netto (B2B-Positionen netto, Rundung ≤ 1 Cent je Bestellung)
-    expect(Math.abs(inv.net - 2 * q.totals.itemsNet)).toBeLessThanOrEqual(10);
+    // Nettobetrag = Warenwert netto exakt (B2B-Positionen netto, kein Rundungsausgleich)
+    expect(inv.net).toBe(2 * q.totals.itemsNet);
   });
 });
 
@@ -444,8 +448,8 @@ describe('tour-accepts-other-days', () => {
   it('Aufträge anderer Liefertage lassen sich nicht in eine Tour legen', async () => {
     const t = createTestCore();
     const admin = await t.as('u-admin');
-    const tomorrow = t.db().orders.find((o) => o.id === 'o-25115')!;
-    expect(tomorrow.slot.date).toBe('2026-10-09');
+    const tomorrow = t.db().orders.find((o) => o.customerId === 'c-lehmann' && o.slot.date === '2026-10-09')!;
+    expect(tomorrow.status).toBe('confirmed');
     const err = await errorOf(admin.adminSaveTour({ date: '2026-10-08', driverId: 'd-ayse', orderIds: [tomorrow.id] }));
     expect(err.code).toBe('conflict');
     expect(t.db().orders.find((o) => o.id === tomorrow.id)!.tourId).toBeUndefined();
@@ -467,11 +471,16 @@ describe('autoplan-race-double-tour', () => {
     const t = createTestCore({ routing: g.provider });
     const admin = await t.as('u-admin');
     const day = '2026-10-09';
+    const idOf = (customerId: string) => t.db().orders.find((o) => o.customerId === customerId && o.slot.date === day)!.id;
+    const lehmann = idOf('c-lehmann');
+    const richter = idOf('c-richter');
+    // Richter (14:00) bestätigen – unbestätigte Aufträge plant die Automatik nicht ein
+    await admin.adminUpdateOrderStatus(richter, 'confirmed');
 
     const plan = admin.adminAutoPlanTours(day);
     await g.waitPending(1); // Route Gruppe 10:00
-    // ein zweiter Disponent plant o-25115 (Gruppe 14:00) parallel
-    const s1 = admin.adminSaveTour({ date: day, driverId: 'd-lukas', orderIds: ['o-25115'] });
+    // ein zweiter Disponent plant Lehmann (Gruppe 14:00) parallel
+    const s1 = admin.adminSaveTour({ date: day, driverId: 'd-lukas', orderIds: [lehmann] });
     await g.waitPending(2);
     await g.release(1);
     const lukasTour = await s1;
@@ -483,18 +492,18 @@ describe('autoplan-race-double-tour', () => {
     expect(settled).toBe('fertig');
     const created = await plan;
     expect(g.pending()).toBe(0);
-    const tour14 = created.find((x) => x.stops.some((s) => s.orderId === 'o-25113'))!;
-    expect(tour14.stops.map((s) => s.orderId)).toEqual(['o-25113']);
+    const tour14 = created.find((x) => x.stops.some((s) => s.orderId === richter))!;
+    expect(tour14.stops.map((s) => s.orderId)).toEqual([richter]);
     expect(tour14.route?.legs).toHaveLength(2);
 
-    // danach übernimmt ein weiterer Disponent o-25113 → aus der AutoPlan-Tour gelöst
-    const s2 = admin.adminSaveTour({ date: day, driverId: 'd-ayse', orderIds: ['o-25113'] });
+    // danach übernimmt ein weiterer Disponent Richter → aus der AutoPlan-Tour gelöst
+    const s2 = admin.adminSaveTour({ date: day, driverId: 'd-ayse', orderIds: [richter] });
     await g.waitPending(1);
     await g.release(0);
     const ayseTour = await s2;
     expectConsistentTours(t.db().orders, t.db().tours);
-    expect(t.db().orders.find((o) => o.id === 'o-25113')!.tourId).toBe(ayseTour.id);
-    expect(t.db().orders.find((o) => o.id === 'o-25115')!.tourId).toBe(lukasTour.id);
+    expect(t.db().orders.find((o) => o.id === richter)!.tourId).toBe(ayseTour.id);
+    expect(t.db().orders.find((o) => o.id === lehmann)!.tourId).toBe(lukasTour.id);
   });
 });
 

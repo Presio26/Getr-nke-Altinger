@@ -49,10 +49,13 @@ export function EventsHero() {
 
   return (
     <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 via-brand-800 to-brand-950 text-white shadow-raised">
-      <RautenBand className="opacity-90" />
+      {/* Rautenband als „Girlande“ innerhalb der Rundung – läuft nicht über die abgerundeten Ecken */}
+      <div aria-hidden className="relative mx-5 mt-4 overflow-hidden rounded-full ring-1 ring-white/30 sm:mx-8 lg:mx-12">
+        <RautenBand className="block opacity-90" />
+      </div>
       <div aria-hidden className="pointer-events-none absolute -right-24 top-10 h-80 w-80 rounded-full bg-accent-400/20 blur-3xl" />
       <div aria-hidden className="pointer-events-none absolute -bottom-32 left-10 h-72 w-72 rounded-full bg-sky-400/10 blur-3xl" />
-      <div className="relative grid gap-8 px-5 pb-8 pt-7 sm:px-8 sm:pb-10 sm:pt-9 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-6 lg:px-12 lg:pb-12 lg:pt-12">
+      <div className="relative grid gap-8 px-5 pb-8 pt-5 sm:px-8 sm:pb-10 sm:pt-7 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-6 lg:px-12 lg:pb-12 lg:pt-10">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-300">Festservice · Verleih · Kommission</p>
           <h1 className="mt-3 text-[2rem] font-bold leading-[1.1] tracking-tight sm:text-5xl">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import type { GeoPoint, LatLng } from '@shared/types';
@@ -33,22 +33,51 @@ export function toLatLng(p: GeoPoint | LatLng): LatLng {
   return Array.isArray(p) ? p : [p.lat, p.lng];
 }
 
-/** Ausschnitt an Punkte anpassen – nur wenn sich die Punktmenge tatsächlich ändert */
-function FitBounds({ points, padding, maxZoom }: { points: LatLng[]; padding: number; maxZoom: number }) {
+function pointsKey(points: LatLng[] | undefined): string {
+  return (points ?? []).map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join('|');
+}
+
+/**
+ * Ausschnitt an Punkte anpassen – nur wenn sich die Punktmenge NACH dem Start ändert
+ * (den ersten Ausschnitt setzt MapContainer direkt über `bounds`, ohne Zwischenstand/Springen).
+ */
+function FitBounds({
+  points,
+  padding,
+  maxZoom,
+  initialKey,
+  instant,
+  onFit,
+}: {
+  points: LatLng[];
+  padding: number;
+  maxZoom: number;
+  initialKey: string;
+  /** ohne Animation springen (Kacheln noch nicht geladen) */
+  instant: boolean;
+  onFit: () => void;
+}) {
   const map = useMap();
-  const key = points.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join('|');
+  const key = pointsKey(points);
+  const applied = useRef(initialKey);
   useEffect(() => {
-    if (!points.length) return;
+    if (!points.length || key === applied.current) return;
+    applied.current = key;
+    const animate = !instant;
     if (points.length === 1) {
-      map.setView(points[0], Math.min(maxZoom, Math.max(map.getZoom(), 14)), { animate: true });
-      return;
+      map.setView(points[0], Math.min(maxZoom, Math.max(map.getZoom(), 14)), { animate });
+    } else {
+      const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
+      if (!bounds.isValid()) return;
+      map.fitBounds(bounds, { padding: [padding, padding], maxZoom, animate });
     }
-    const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
-    if (!bounds.isValid()) return;
-    map.fitBounds(bounds, { padding: [padding, padding], maxZoom, animate: true });
-  }, [key, map, padding, maxZoom]);
+    onFit();
+  }, [key, map, padding, maxZoom, instant, onFit]);
   return null;
 }
+
+/** so lange auf weitere Punkte warten (Daten laden noch), bevor Kacheln für den Zwischenstand geladen werden */
+const FIT_SETTLE_MS = 450;
 
 /** Größe neu berechnen, wenn sich der Container ändert (Tabs, Drawer, Drehung des Handys) */
 function AutoResize() {
@@ -97,12 +126,37 @@ export function BaseMap({
   const settings = useSettings();
   const initialCenter = useMemo<LatLng>(() => center ?? [settings.location.lat, settings.location.lng], [center, settings.location.lat, settings.location.lng]);
   const desktop = useMemo(() => hasFinePointer(), []);
+  // Startausschnitt direkt aus fitTo (MapContainer liest Startwerte nur einmal) → keine Kacheln für einen
+  // Zwischenstand laden, die gleich wieder verworfen werden, und kein Springen der Karte
+  const [initial] = useState(() => {
+    const pts = fitTo ?? [];
+    const key = pointsKey(pts);
+    if (pts.length >= 2) {
+      const bounds = L.latLngBounds(pts.map((p) => L.latLng(p[0], p[1])));
+      if (bounds.isValid() && !bounds.getNorthEast().equals(bounds.getSouthWest())) {
+        return { key, bounds, center: undefined, zoom: undefined };
+      }
+    }
+    if (pts.length >= 1) return { key, bounds: undefined, center: pts[0], zoom: Math.min(maxFitZoom, Math.max(zoom, 14)) };
+    return { key, bounds: undefined, center: initialCenter, zoom };
+  });
+
+  // Steht beim Start nur ein Punkt fest (meist: Markt, Touren/Aufträge laden noch), Kacheln kurz zurückhalten –
+  // kommen die übrigen Punkte, springt die Karte ohne Animation dorthin und lädt nur diese Kacheln.
+  const [tilesReady, setTilesReady] = useState(() => !(fitTo && fitTo.length === 1));
+  useEffect(() => {
+    if (tilesReady) return;
+    const t = window.setTimeout(() => setTilesReady(true), FIT_SETTLE_MS);
+    return () => window.clearTimeout(t);
+  }, [tilesReady]);
+  const markFitted = useCallback(() => setTilesReady(true), []);
 
   return (
     <div className={cn('relative h-full w-full overflow-hidden', className)}>
       <MapContainer
-        center={initialCenter}
-        zoom={zoom}
+        {...(initial.bounds
+          ? { bounds: initial.bounds, boundsOptions: { padding: [fitPadding, fitPadding] as [number, number], maxZoom: maxFitZoom } }
+          : { center: initial.center, zoom: initial.zoom })}
         className="h-full w-full"
         scrollWheelZoom={desktop && !isStatic}
         dragging={!isStatic}
@@ -115,9 +169,11 @@ export function BaseMap({
         // Leaflet 1.9: Tippen auf iOS ohne Verzögerung
         tapTolerance={15}
       >
-        <TileLayer url={OSM_TILES} attribution={OSM_ATTRIBUTION} maxZoom={19} subdomains={['a', 'b', 'c']} detectRetina={false} />
+        {tilesReady ? <TileLayer url={OSM_TILES} attribution={OSM_ATTRIBUTION} maxZoom={19} subdomains={['a', 'b', 'c']} detectRetina={false} /> : null}
         <AutoResize />
-        {fitTo && fitTo.length ? <FitBounds points={fitTo} padding={fitPadding} maxZoom={maxFitZoom} /> : null}
+        {fitTo && fitTo.length ? (
+          <FitBounds points={fitTo} padding={fitPadding} maxZoom={maxFitZoom} initialKey={initial.key} instant={!tilesReady} onFit={markFitted} />
+        ) : null}
         {onReady ? <Ready onReady={onReady} /> : null}
         {children}
       </MapContainer>

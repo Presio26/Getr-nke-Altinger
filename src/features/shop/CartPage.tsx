@@ -4,6 +4,7 @@ import { ArrowRight, BadgePercent, Info, LogIn, PartyPopper, RefreshCw, Shopping
 import { formatEuro } from '@shared/format';
 import { useMyCustomer, useProductMap, useProducts } from '@/api/hooks';
 import { useCart } from '@/stores/cart';
+import { StickyActionBar } from '@/components/layout/StickyActionBar';
 import { useSession } from '@/stores/session';
 import { Button, ButtonLink, Card, ConfirmModal, EmptyState, Notice, PageHeader, Section, Spinner } from '@/components/ui';
 import { CartLine } from './components/cart/CartLine';
@@ -105,20 +106,30 @@ function EmptyCart() {
 function MobileCheckoutBar({ total, loading, disabled }: { total: number | undefined; loading: boolean; disabled: boolean }) {
   const target = useCheckoutTarget();
   return (
-    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4rem)] z-[45] border-t border-slate-200/80 bg-white/95 px-4 py-2.5 shadow-bar backdrop-blur-md lg:hidden">
-      <div className="mx-auto flex max-w-lg items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-slate-500">{total !== undefined && total < 0 ? 'Auszahlung' : 'Gesamt inkl. Pfand'}</p>
-          <p className="flex items-center gap-2 text-xl font-bold tracking-tight tabular-nums text-slate-900">
+    <StickyActionBar>
+      <div className="flex items-center gap-3">
+        <div className="shrink-0">
+          <p className="text-xs font-medium leading-tight text-slate-500">{total !== undefined && total < 0 ? 'Auszahlung' : 'Gesamt inkl. Pfand'}</p>
+          <p className="flex items-center gap-2 whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900">
             {total !== undefined ? formatEuro(Math.abs(total)) : '–'}
             {loading ? <Spinner size={14} /> : null}
           </p>
         </div>
-        <ButtonLink to={target.to} size="lg" disabled={disabled || target.staff} iconRight={target.guest ? undefined : ArrowRight} icon={target.guest ? LogIn : undefined} className="h-12 px-5">
-          {target.guest ? 'Anmelden' : 'Zur Kasse'}
-        </ButtonLink>
+        <div className="min-w-0 flex-1">
+          <ButtonLink
+            to={target.to}
+            size="lg"
+            block
+            disabled={disabled || target.staff}
+            iconRight={target.guest ? undefined : ArrowRight}
+            icon={target.guest ? LogIn : undefined}
+            className="h-12 px-4"
+          >
+            {target.guest ? 'Anmelden' : 'Zur Kasse'}
+          </ButtonLink>
+        </div>
       </div>
-    </div>
+    </StickyActionBar>
   );
 }
 
@@ -219,7 +230,7 @@ export default function CartPage() {
             </Notice>
           ))}
 
-          <EmptiesReturn fulfillment={fulfillment} />
+          <EmptiesReturn fulfillment={fulfillment} errors={state.quote?.errors} />
         </div>
 
         <aside className="lg:sticky lg:top-[8.75rem]" aria-label="Zusammenfassung">
@@ -227,8 +238,6 @@ export default function CartPage() {
         </aside>
       </div>
 
-      {/* Platz für die mobile Kassen-Leiste */}
-      <div className="h-20 lg:hidden" aria-hidden />
       <MobileCheckoutBar total={state.quote?.totals.total} loading={state.fetching || state.loading} disabled={reasons.length > 0} />
 
       <ConfirmModal

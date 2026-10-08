@@ -21,7 +21,7 @@ import cors from 'cors';
 import express, { type ErrorRequestHandler, type Request, type RequestHandler, type Response } from 'express';
 import { API_ERROR_STATUS, ApiError } from '../shared/api';
 import type { ApiErrorBody, ApiErrorCode } from '../shared/types';
-import { createCore, isSeedStale, reseedDb, type Core, type CoreOptions, type Db } from '../shared/core/index';
+import { CORE_VERSION, createCore, isSeedStale, reseedDb, type Core, type CoreOptions, type Db } from '../shared/core/index';
 import { createPersister, loadDb, type LoadResult } from './persistence';
 import { createRealtime, type Realtime } from './realtime';
 
@@ -29,16 +29,11 @@ const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const DEFAULT_DATA_FILE = path.join(ROOT_DIR, 'data', 'db.json');
 const DEFAULT_DIST_DIR = path.join(ROOT_DIR, 'dist');
 
-export const SERVER_VERSION: string = readVersion();
-
-function readVersion(): string {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')) as { version?: string };
-    return pkg.version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
+/**
+ * Eine Version für alles: Server (/api/health), Core (Bootstrap.version) und Oberfläche nutzen CORE_VERSION;
+ * package.json trägt dieselbe Nummer (ein Test prüft das).
+ */
+export const SERVER_VERSION: string = CORE_VERSION;
 
 // ───────────────────────────── Optionen ─────────────────────────────
 

@@ -27,6 +27,8 @@ export function computeStats(db: Db, daysInput: number, now: Date): Stats {
   let revenueTotal = 0;
   const byFulfillment = { delivery: 0, pickup: 0 };
   const byCustomerType = { b2c: 0, b2b: 0 };
+  /** Herkunft: App/Web, telefonisch vom Markt erfasst, Abo/Dauerauftrag (ältere Daten ohne Angabe = App) */
+  const bySource = { app: 0, phone: 0, subscription: 0 };
 
   for (const o of inRange) {
     const rev = orderRevenue(o);
@@ -38,6 +40,7 @@ export function computeStats(db: Db, daysInput: number, now: Date): Stats {
     }
     byFulfillment[o.fulfillment] += 1;
     byCustomerType[o.customerType] += 1;
+    bySource[o.source === 'phone' || o.source === 'subscription' ? o.source : 'app'] += 1;
     ordersByHour[berlinParts(new Date(o.createdAt)).hour] += 1;
     // Rabatt anteilig auf die Positionen verteilen
     const factor = o.totals.itemsGross > 0 ? rev / o.totals.itemsGross : 1;
@@ -75,6 +78,7 @@ export function computeStats(db: Db, daysInput: number, now: Date): Stats {
 
   return {
     days,
+    bySource,
     revenueByDay: [...byDay.values()],
     revenueTotal,
     ordersTotal: inRange.length,

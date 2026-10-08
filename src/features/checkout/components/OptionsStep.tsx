@@ -20,6 +20,8 @@ export interface OptionsStepProps {
   onCarry: (v: boolean) => void;
   empties: EmptiesLine[];
   onEmpties: (lines: EmptiesLine[]) => void;
+  /** Meldungen der Preisberechnung zur Leergut-Rückgabe (z. B. Obergrenze laut Leergut-Konto) */
+  emptiesErrors?: string[];
   /** Leihartikel oder Fass im Warenkorb */
   hasEventItems: boolean;
   /** Leihartikel im Warenkorb (Datum Pflicht) */
@@ -112,9 +114,21 @@ export function OptionsStep(p: OptionsStepProps) {
           </div>
         ) : (
           <p className="mt-0.5 text-sm text-slate-500">
-            {delivery ? 'Leere Kästen und Fässer nimmt der Fahrer mit – das Pfand wird direkt verrechnet.' : 'Bringen Sie Ihr Leergut zur Abholung mit – wir verrechnen das Pfand direkt.'}
+            {delivery
+              ? 'Leere Kästen, Fässer und lose Flaschen nimmt der Fahrer mit – das Pfand wird direkt verrechnet.'
+              : 'Bringen Sie Ihr Leergut zur Abholung mit – wir verrechnen das Pfand direkt.'}
           </p>
         )}
+        {p.emptiesErrors?.length ? (
+          <div className="mt-2 space-y-1.5 rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-800 ring-1 ring-inset ring-red-200" role="alert">
+            {p.emptiesErrors.map((m) => (
+              <p key={m}>{m}</p>
+            ))}
+            <button type="button" onClick={() => setEmptiesOpen(true)} className="min-h-9 font-semibold underline underline-offset-2">
+              Leergut anpassen
+            </button>
+          </div>
+        ) : null}
       </OptionRow>
 
       {p.hasEventItems ? (

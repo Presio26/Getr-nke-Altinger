@@ -115,6 +115,34 @@ export default function SubscriptionsAdminPage() {
     [subs, customers, products, tab, onlyActive, q],
   );
 
+  const [toggling, setToggling] = useState<string | null>(null);
+  const toggle = useApiMutation((sub: Subscription) => api.adminSetSubscriptionActive(sub.id, !sub.active), {
+    invalidate: [qk.admin],
+    success: (saved) => {
+      const name = customers.get(saved.customerId)?.name ?? '';
+      return saved.active ? `„${saved.name}“ läuft wieder${name ? ` (${name})` : ''}` : `„${saved.name}“ pausiert${name ? ` (${name})` : ''}`;
+    },
+  });
+  const onToggle = (sub: Subscription) => {
+    setToggling(sub.id);
+    toggle.mutate(sub, { onSettled: () => setToggling(null) });
+  };
+  const toggleButton = (sub: Subscription, block = false) => (
+    <Button
+      size="sm"
+      variant={sub.active ? 'ghost' : 'outline'}
+      icon={sub.active ? PauseCircle : PlayCircle}
+      loading={toggling === sub.id}
+      disabled={!!toggling && toggling !== sub.id}
+      onClick={() => onToggle(sub)}
+      block={block}
+      aria-label={`${sub.active ? 'Pausieren' : 'Fortsetzen'}: ${sub.name}`}
+      className={sub.active ? 'text-slate-600' : undefined}
+    >
+      {sub.active ? 'Pausieren' : 'Fortsetzen'}
+    </Button>
+  );
+
   const run = useApiMutation((date: string) => api.adminRunSubscriptions(date), {
     invalidate: [qk.admin, qk.orders],
     success: (orders) => (orders.length === 1 ? '1 Bestellung aus Abos angelegt' : `${orders.length} Bestellungen aus Abos angelegt`),
@@ -150,7 +178,7 @@ export default function SubscriptionsAdminPage() {
           <StatCard label="Aktive Abos" value={formatCount(kpi.active)} hint={`${kpi.active - kpi.activeB2B} ${kpi.active - kpi.activeB2B === 1 ? 'Abo' : 'Abos'} · ${kpi.activeB2B} ${kpi.activeB2B === 1 ? 'Dauerauftrag' : 'Daueraufträge'}`} icon={Repeat} tone="brand" />
           <StatCard label="Fällig in 7 Tagen" value={formatCount(kpi.next7)} hint="Abos mit Lieferung bis nächste Woche" icon={CalendarClock} tone="accent" />
           <StatCard label="Warenwert je 4 Wochen" value={formatEuro(kpi.monthly)} hint="brutto, aus allen aktiven Abos" icon={Wallet} tone="success" />
-          <StatCard label="Pausiert" value={formatCount(kpi.paused)} hint={kpi.paused ? 'vom Kunden angehalten' : 'alle Abos laufen'} icon={PauseCircle} tone="neutral" />
+          <StatCard label="Pausiert" value={formatCount(kpi.paused)} hint={kpi.paused ? 'vom Kunden oder vom Markt angehalten' : 'alle Abos laufen'} icon={PauseCircle} tone="neutral" />
         </div>
       ) : null}
 
@@ -331,9 +359,12 @@ export default function SubscriptionsAdminPage() {
                           <p className="text-xs text-slate-500">je Lieferung</p>
                         </TD>
                         <TD>
-                          <Badge tone={s.active ? 'success' : 'neutral'} icon={s.active ? CheckCircle2 : PauseCircle}>
-                            {s.active ? 'Aktiv' : 'Pausiert'}
-                          </Badge>
+                          <div className="flex flex-col items-start gap-1.5">
+                            <Badge tone={s.active ? 'success' : 'neutral'} icon={s.active ? CheckCircle2 : PauseCircle}>
+                              {s.active ? 'Aktiv' : 'Pausiert'}
+                            </Badge>
+                            {toggleButton(s)}
+                          </div>
                         </TD>
                       </TR>
                     );
@@ -369,6 +400,9 @@ export default function SubscriptionsAdminPage() {
                           </p>
                         </div>
                         <Money cents={valueOf(s)} className="font-semibold text-slate-900" />
+                      </div>
+                      <div className="mt-3">
+                        {toggleButton(s, true)}
                       </div>
                     </Card>
                   </li>

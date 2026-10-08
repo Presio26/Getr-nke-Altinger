@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { CalendarCheck, ListPlus, Plus, Route as RouteIcon, Sparkles, Truck } from 'lucide-react';
 import type { Driver, Order, TourWithOrders } from '@shared/types';
-import { formatDate, formatDistance } from '@shared/format';
+import { formatDate, formatDistance, formatDuration } from '@shared/format';
 import { todayString } from '@shared/time';
 import { api } from '@/api/client';
 import { qk, useApiMutation, useSettings } from '@/api/hooks';
@@ -29,7 +29,8 @@ import { useAdminDrivers, useAdminOrders, useAdminTours, useSaveTour } from './o
 import { useParamState } from './ops/hooks';
 import { DAY_RE, DEFAULT_SIM_SPEED, OPEN_STATUSES, firstName, orderCrates, relDayInline } from './ops/model';
 import { DayPicker } from './ops/components/DayPicker';
-import { B2BTag } from './ops/components/OrderBits';
+import { B2BIcon } from './ops/components/OrderBits';
+import { AutoPlanModal } from './ops/components/AutoPlanModal';
 import { TourCard } from './ops/components/TourCard';
 import { TourEditorModal } from './ops/components/TourEditorModal';
 import { LiveDriverMarker, TourLayer } from './ops/components/FleetLayers';
@@ -65,18 +66,18 @@ function UnplannedPanel({
   const targets = tours.filter((t) => t.status !== 'completed' && !t.simulation?.running && t.date === date);
   return (
     <Card padding="none" className="flex min-h-0 flex-col overflow-hidden xl:max-h-[calc(100dvh-8.5rem)]">
-      <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-semibold text-slate-900">Ungeplante Lieferungen</h2>
+      <div className="border-b border-slate-100 px-4 py-3">
+        <h2 className="text-[15px] font-semibold text-slate-900">Ungeplante Lieferungen</h2>
+        <div className="flex min-h-6 items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
             {orders.length} {orders.length === 1 ? 'Auftrag' : 'Aufträge'} · {orders.reduce((s, o) => s + orderCrates(o), 0)} Gebinde
           </p>
+          {orders.length > 1 ? (
+            <button type="button" onClick={onToggleAll} className="-my-1.5 -mr-2 min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+              {selected.length === orders.length ? 'Keine' : 'Alle'} wählen
+            </button>
+          ) : null}
         </div>
-        {orders.length > 1 ? (
-          <button type="button" onClick={onToggleAll} className="min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-brand-700 hover:bg-brand-50">
-            {selected.length === orders.length ? 'Keine' : 'Alle'} wählen
-          </button>
-        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
@@ -101,11 +102,11 @@ function UnplannedPanel({
                       className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded-md accent-brand-700"
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                        <span className="truncate">{o.customerName}</span>
-                        <B2BTag type={o.customerType} />
+                      <span className="line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-900">
+                        {o.customerName}
+                        <B2BIcon type={o.customerType} />
                       </span>
-                      <span className="block truncate text-xs text-slate-500">
+                      <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-slate-500" title={o.address ? `${o.address.street}, ${o.address.zip} ${o.address.city}` : undefined}>
                         {o.number} · {o.address ? `${o.address.street}, ${o.address.zip}` : '–'}
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -176,7 +177,7 @@ function ToursMap({
   }, [selected, tours, unplanned, settings.location]);
   const ordered = [...tours].sort((a, b) => (a.id === selectedId ? 1 : 0) - (b.id === selectedId ? 1 : 0));
   return (
-    <Card padding="none" className="relative h-72 overflow-hidden sm:h-96 lg:h-[26rem] xl:h-[calc(100dvh-8.5rem)]">
+    <Card padding="none" className="relative isolate h-72 overflow-hidden sm:h-96 lg:h-[26rem] xl:h-[calc(100dvh-8.5rem)]">
       <BaseMap fitTo={fit} fitPadding={44} maxFitZoom={15}>
         <StoreMarker />
         {ordered.map((t) => (
@@ -271,23 +272,28 @@ export default function ToursPage() {
   const optimize = useApiMutation((tour: TourWithOrders) => api.adminOptimizeTour(tour.id), {
     invalidate: [qk.admin],
     onSuccess: (t, before) => {
-      const saved = (before.route?.distance ?? 0) - (t.route?.distance ?? 0);
-      toast.success(`„${t.name}“ optimiert`, {
-        description: saved > 50 ? `${formatDistance(saved)} kürzer – neue Reihenfolge übernommen.` : 'Die Reihenfolge war bereits optimal.',
+      // Vorher/Nachher vergleichen – der Core übernimmt nur echte Verbesserungen
+      const savedM = before.route && t.route ? before.route.distance - t.route.distance : 0;
+      const savedS = before.route && t.route ? before.route.duration - t.route.duration : 0;
+      const changed = before.stops.map((s) => s.orderId).join('|') !== t.stops.map((s) => s.orderId).join('|');
+      const parts = [savedM >= 50 ? formatDistance(savedM) : null, savedS >= 60 ? formatDuration(savedS) : null].filter(Boolean);
+      if (changed && parts.length) {
+        toast.success(`„${t.name}“ optimiert`, { description: `${parts.join(' / ')} kürzer – neue Reihenfolge übernommen.` });
+      } else {
+        toast.info('Die Reihenfolge ist bereits optimal', { description: `„${t.name}“ bleibt unverändert.` });
+      }
+    },
+  });
+  const [autoPlanOpen, setAutoPlanOpen] = useState(false);
+  const onAutoPlanned = (created: TourWithOrders[]) => {
+    setAutoPlanOpen(false);
+    if (!created.length) toast.info('Keine bestätigten Lieferungen ohne Tour', { description: 'Es gab nichts automatisch zu planen.' });
+    else
+      toast.success(created.length === 1 ? '1 Tour automatisch geplant' : `${created.length} Touren automatisch geplant`, {
+        description: created.map((t) => `${t.driver ? firstName(t.driver.name) : t.name}: ${t.stops.length} ${t.stops.length === 1 ? 'Stopp' : 'Stopps'}`).join(' · '),
       });
-    },
-  });
-  const autoPlan = useApiMutation(() => api.adminAutoPlanTours(date), {
-    invalidate: [qk.admin],
-    onSuccess: (created) => {
-      if (!created.length) toast.info('Keine offenen Lieferungen ohne Tour', { description: 'Es gibt nichts automatisch zu planen.' });
-      else
-        toast.success(created.length === 1 ? '1 Tour automatisch geplant' : `${created.length} Touren automatisch geplant`, {
-          description: created.map((t) => `${t.driver ? firstName(t.driver.name) : t.name}: ${t.stops.length} Stopps`).join(' · '),
-        });
-      if (created[0]) setTourParam(created[0].id);
-    },
-  });
+    if (created[0]) setTourParam(created[0].id);
+  };
   const simulate = useApiMutation((tour: TourWithOrders) => api.simulateTour(tour.id, { speedFactor: DEFAULT_SIM_SPEED, autoComplete: true }), {
     invalidate: [qk.admin],
     onSuccess: (t) => {
@@ -366,9 +372,8 @@ export default function ToursPage() {
             <Button
               variant="accent"
               icon={Sparkles}
-              loading={autoPlan.isPending}
               disabled={!unplanned.length || isPast}
-              onClick={() => autoPlan.mutate()}
+              onClick={() => setAutoPlanOpen(true)}
               title={unplanned.length ? 'Offene Lieferungen automatisch auf verfügbare Fahrer verteilen' : 'Keine ungeplanten Lieferungen'}
             >
               Automatisch planen
@@ -390,7 +395,7 @@ export default function ToursPage() {
           <ErrorState error={toursQuery.error} onRetry={() => void toursQuery.refetch()} />
         </Card>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1.35fr)_minmax(0,1fr)]">
           <div className="min-w-0 lg:row-span-2 xl:sticky xl:top-24 xl:row-span-1 xl:self-start">
             <UnplannedPanel
               orders={unplanned}
@@ -429,7 +434,7 @@ export default function ToursPage() {
                   action={
                     unplanned.length && !isPast ? (
                       <>
-                        <Button variant="accent" icon={Sparkles} onClick={() => autoPlan.mutate()} loading={autoPlan.isPending}>
+                        <Button variant="accent" icon={Sparkles} onClick={() => setAutoPlanOpen(true)}>
                           Automatisch planen
                         </Button>
                         <Button variant="outline" icon={ListPlus} onClick={() => setEditor({ tourId: null, preselected: [] })}>
@@ -475,6 +480,8 @@ export default function ToursPage() {
           </div>
         </div>
       )}
+
+      <AutoPlanModal open={autoPlanOpen} onClose={() => setAutoPlanOpen(false)} date={date} unplanned={unplanned} onApplied={onAutoPlanned} />
 
       <TourEditorModal
         open={!!editor}

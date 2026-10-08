@@ -12,15 +12,16 @@ import {
   ClipboardList,
   Euro,
   MapPinned,
-  Package,
   PackageCheck,
+  PhoneOff,
+  Phone,
   Route as RouteIcon,
   ScanLine,
   ShoppingBag,
   Star,
   Truck,
 } from 'lucide-react';
-import type { Order, TourWithOrders } from '@shared/types';
+import type { Order, Stats, TourWithOrders } from '@shared/types';
 import { TOUR_STATUS_LABEL, formatDate, formatEuro, formatRelative, formatTime } from '@shared/format';
 import { berlinParts, todayString } from '@shared/time';
 import { useSettings } from '@/api/hooks';
@@ -37,19 +38,43 @@ import {
   ErrorState,
   OrderStatusBadge,
   PageHeader,
+  Button,
   Skeleton,
   StatCard,
+  Switch,
 } from '@/components/ui';
 import { BaseMap, StoreMarker, toLatLng } from '@/components/map';
 import { useAdminDrivers, useAdminOrders, useAdminStats, useAdminTours } from './ops/api';
 import { useFreshIds } from './ops/hooks';
 import { firstName, orderCrates } from './ops/model';
-import { B2BTag, FulfillmentIcon, LiveDot, ProgressBar } from './ops/components/OrderBits';
+import { B2BTag, FulfillmentIcon, LiveDot, ProgressBar, SourceTag } from './ops/components/OrderBits';
+import { PhoneOrderLauncher, useOpenPhoneOrder } from './ops/components/PhoneOrderLauncher';
+import { useNewOrderChime, useOrderChime } from './ops/sound';
 import { RevenueChart, RevenueLegend } from './ops/components/RevenueChart';
 import { LiveDriverMarker, TourLayer, useDriversAway } from './ops/components/FleetLayers';
 
 const DAYS = 14;
 const ALL_QUERY = {};
+/** Geschätzte Telefonzeit je Bestellung, die nicht am Telefon aufgenommen werden musste */
+const PHONE_MINUTES_PER_ORDER = 3;
+
+/** Herkunft der Bestellungen im Zeitraum – aus der Statistik, sonst aus der Bestellliste berechnet */
+function sourceCounts(stats: Stats, orders: Order[] | undefined, now: Date): { app: number; phone: number; subscription: number } | null {
+  if (stats.bySource) return stats.bySource;
+  if (!orders) return null;
+  const from = now.getTime() - DAYS * 86_400_000;
+  const out = { app: 0, phone: 0, subscription: 0 };
+  for (const o of orders) {
+    if (o.status === 'cancelled' || Date.parse(o.createdAt) < from) continue;
+    out[o.source ?? (o.subscriptionId ? 'subscription' : 'app')] += 1;
+  }
+  return out;
+}
+
+function formatMinutes(min: number): string {
+  if (min < 120) return `${min} Min.`;
+  return `${(min / 60).toLocaleString('de-DE', { maximumFractionDigits: 1 })} Std.`;
+}
 
 function greeting(now: Date): string {
   const h = berlinParts(now).hour;
@@ -60,9 +85,10 @@ function greeting(now: Date): string {
 
 // ───────────────────────────── Kennzahlen ─────────────────────────────
 
-function KpiRow() {
+function KpiRow({ now }: { now: Date }) {
   const navigate = useNavigate();
   const { data: stats, isLoading, error, refetch } = useAdminStats(DAYS);
+  const { data: orders } = useAdminOrders(ALL_QUERY, { enabled: !!stats && !stats.bySource });
   if (error) {
     return (
       <Card className="mb-5">
@@ -72,8 +98,8 @@ function KpiRow() {
   }
   if (isLoading || !stats) {
     return (
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" aria-busy>
-        {Array.from({ length: 5 }, (_, i) => (
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 min-[1800px]:grid-cols-6" aria-busy>
+        {Array.from({ length: 6 }, (_, i) => (
           <Skeleton key={i} className="h-[7.5rem] rounded-2xl" />
         ))}
       </div>
@@ -82,8 +108,11 @@ function KpiRow() {
   const past = stats.revenueByDay.slice(0, -1);
   const avg = past.length ? past.reduce((s, d) => s + d.b2c + d.b2b, 0) / past.length : 0;
   const t = stats.today;
+  const src = sourceCounts(stats, orders, now);
+  const total = src ? src.app + src.phone + src.subscription : 0;
+  const online = src ? src.app + src.subscription : 0;
   return (
-    <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+    <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 min-[1800px]:grid-cols-6">
       <StatCard
         label="Bestellungen heute"
         value={t.orders}
@@ -126,7 +155,23 @@ function KpiRow() {
         icon={Star}
         tone="warning"
         hint={`${stats.ratingCount} Bewertungen`}
-        className="col-span-2 md:col-span-1"
+      />
+      <StatCard
+        label={<span title={`Schätzung: ${PHONE_MINUTES_PER_ORDER} Min. Telefonzeit je Bestellung über App oder Abo (letzte ${DAYS} Tage)`}>Telefon-Entlastung</span>}
+        value={total ? `${Math.round((online / total) * 100)} % online` : '–'}
+        icon={PhoneOff}
+        tone="success"
+        hint={
+          total ? (
+            <>
+              {online} von {total} ohne Anruf ({DAYS} Tage)
+              <span className="block">≈ {formatMinutes(online * PHONE_MINUTES_PER_ORDER)} Telefonzeit gespart</span>
+            </>
+          ) : (
+            `Noch keine Bestellungen in ${DAYS} Tagen`
+          )
+        }
+        onClick={() => navigate('/admin/statistik')}
       />
     </div>
   );
@@ -191,6 +236,7 @@ function FeedRow({ order, fresh, now }: { order: Order; fresh: boolean; now: Dat
             <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-slate-900">
               <span className="truncate">{order.customerName}</span>
               <B2BTag type={order.customerType} />
+              <SourceTag source={order.source} />
               {fresh ? (
                 <Badge tone="accent" solid className="!px-1.5 !py-0 text-[10px]">
                   Neu
@@ -215,6 +261,8 @@ function LiveFeedCard({ now }: { now: Date }) {
   const { data, isLoading, error, refetch } = useAdminOrders(ALL_QUERY, { refetchInterval: 60_000 });
   const ids = useMemo(() => data?.map((o) => o.id), [data]);
   const fresh = useFreshIds(ids, 12_000);
+  useNewOrderChime(data);
+  const [chime, setChime] = useOrderChime();
   const latest = (data ?? []).slice(0, 6);
   const pending = (data ?? []).filter((o) => o.status === 'pending').length;
   return (
@@ -250,6 +298,13 @@ function LiveFeedCard({ now }: { now: Date }) {
           ))}
         </ul>
       )}
+      <Switch
+        checked={chime}
+        onChange={setChime}
+        label="Ton bei neuer Bestellung"
+        description={chime ? 'Ein kurzer Gong, sobald eine Bestellung eingeht.' : undefined}
+        className="mt-auto border-t border-slate-100 pt-3 [&_span]:text-sm"
+      />
     </Card>
   );
 }
@@ -457,29 +512,30 @@ export default function DashboardPage() {
   const now = useNow(30_000);
   const today = todayString(now);
   const toursQuery = useAdminTours(today);
+  const openPhoneOrder = useOpenPhoneOrder();
 
   return (
     <>
       <PageHeader
         title={greeting(now)}
         documentTitle="Dashboard"
-        subtitle={`${formatDate(today, 'long')} · Tagesgeschäft auf einen Blick`}
+        subtitle={formatDate(today, 'long')}
         actions={
           <>
+            <Button variant="accent" icon={Phone} onClick={() => openPhoneOrder()}>
+              Telefonbestellung
+            </Button>
             <ButtonLink to="/admin/touren" variant="primary" icon={RouteIcon}>
               Touren planen
             </ButtonLink>
             <ButtonLink to="/admin/abholungen" variant="outline" icon={ScanLine}>
               Abholung prüfen
             </ButtonLink>
-            <ButtonLink to="/admin/sortiment" variant="outline" icon={Package}>
-              Sortiment
-            </ButtonLink>
           </>
         }
       />
 
-      <KpiRow />
+      <KpiRow now={now} />
 
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="min-w-0 xl:col-span-2">
@@ -495,6 +551,8 @@ export default function DashboardPage() {
           <LowStockCard />
         </div>
       </div>
+
+      <PhoneOrderLauncher />
     </>
   );
 }

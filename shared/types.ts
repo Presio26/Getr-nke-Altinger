@@ -136,6 +136,11 @@ export interface DepositType {
   amount: number;
   /** Ob dieses Leergut als ganzer Kasten zurückgegeben werden kann (für Leergut-Rückgabe-Auswahl) */
   returnable: boolean;
+  /**
+   * Lose Einzelflasche/-dose (Rückgabe stückweise, z. B. „Bierflasche lose“ 0,08 €): kein Leergut-Konto,
+   * Rückgabe ohne Kontoprüfung bis zu einer Höchstmenge je Bestellung.
+   */
+  loose?: boolean;
 }
 
 export interface TierPrice {
@@ -437,8 +442,24 @@ export interface Totals {
   vat: number;
   /** Endbetrag brutto = itemsGross − discount + deposit − depositRefund + deliveryFee + carryFee (kann bei viel Leergut negativ sein = Auszahlung) */
   total: number;
-  /** MwSt.-Aufschlüsselung je Satz (Netto/MwSt. inkl. Pfand, Gebühren, abzgl. Gutschriften) – für Kasse und Rechnung */
+  /**
+   * MwSt.-Aufschlüsselung je Satz (Netto/MwSt. inkl. Pfand, Gebühren, abzgl. Gutschriften) – für Kasse und Rechnung.
+   * Immer: Σ net + Σ vat = total und Σ vat = vat. Privatkunden: MwSt. aus dem Brutto je Satz herausgerechnet;
+   * Geschäftskunden: Netto je Satz, MwSt. = round(Netto × Satz), Brutto = Netto + MwSt. (itemsGross ist dann
+   * der Warenwert brutto auf Netto-Basis, sodass die Summenformel von `total` exakt gilt).
+   */
   vatBreakdown?: VatBreakdownLine[];
+  /** Nettowerte der Bestandteile (Cent, positiv) – items − discount + deposit − depositRefund + deliveryFee + carryFee = Σ vatBreakdown.net */
+  netParts?: TotalsNetParts;
+}
+
+export interface TotalsNetParts {
+  items: number;
+  discount: number;
+  deposit: number;
+  depositRefund: number;
+  deliveryFee: number;
+  carryFee: number;
 }
 
 export interface VatBreakdownLine {

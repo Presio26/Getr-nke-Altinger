@@ -51,7 +51,7 @@ async function start(options: { fetch: () => Promise<Response>; storage: Storage
   vi.stubGlobal('navigator', { onLine: options.online ?? false });
   const client = await import('./client');
   const mode = await client.initApi();
-  return { mode, status: client.realtime.status(), transport: state.transports.at(-1) };
+  return { mode, status: client.realtime.status(), transport: state.transports.at(-1), reachable: client.wasServerReachableAtStart() };
 }
 
 describe('auto-mode-silent-local-fallback', () => {
@@ -78,10 +78,28 @@ describe('auto-mode-silent-local-fallback', () => {
     expect(r.status).toBe('offline');
   });
 
-  it('nie ein Server gesehen und nicht erreichbar → local wie bisher (Offline-Demo)', async () => {
+  it('bekannter Server nicht erreichbar → Start-Bildschirm wartet auf den Server (nicht erreichbar gemeldet)', async () => {
+    const r = await start({ fetch: networkError, storage: memoryStorage({ [SERVER_SEEN_KEY]: 'remote' }) });
+    expect(r.reachable).toBe(false);
+  });
+
+  it('nie ein Server gesehen, Gerät offline → local (Offline-Demo)', async () => {
     const r = await start({ fetch: networkError, storage: memoryStorage() });
     expect(r.mode).toBe('local');
     expect(r.transport).toBe('local');
+  });
+
+  it('nie ein Server gesehen, Gerät online, Server schläft (Render-Kaltstart) → remote + warten, NICHT still local', async () => {
+    const r = await start({ fetch: networkError, storage: memoryStorage(), online: true });
+    expect(r.mode).toBe('remote');
+    expect(r.transport).toBe('remote');
+    expect(r.status).toBe('offline');
+    expect(r.reachable).toBe(false);
+  });
+
+  it('Server erreichbar → kein Warte-Bildschirm', async () => {
+    const r = await start({ fetch: healthy, storage: memoryStorage(), online: true });
+    expect(r.reachable).toBe(true);
   });
 
   it('eindeutig kein Server (404 eines Static-Hostings) → local, auch wenn früher einer da war', async () => {

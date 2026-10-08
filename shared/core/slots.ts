@@ -6,8 +6,8 @@
  * Bestellschluss: Lieferung settings.orderCutoffMinutes (Default 90) vor Fensterbeginn,
  * Abholung settings.pickupCutoffMinutes (Default 30).
  */
-import type { DayString, FulfillmentType, Order, SlotQuery, SlotTemplate, StoreSettings, TimeSlot, TimeString } from '../types';
-import { addDays, berlinDate, isDayString, todayString, weekdayOf } from '../time';
+import type { DayString, FulfillmentType, ISODate, Order, SlotQuery, SlotTemplate, StoreSettings, TimeSlot, TimeString } from '../types';
+import { addDays, berlinDate, dayString, isDayString, timeString, todayString, weekdayOf } from '../time';
 
 export const DEFAULT_PICKUP_CUTOFF_MINUTES = 30;
 const SLOT_ID_RE = /^(delivery|pickup)\|(\d{4}-\d{2}-\d{2})\|([0-2]\d:[0-5]\d)-([0-2]\d:[0-5]\d)$/;
@@ -117,4 +117,31 @@ export function findSlot(
 export function nextWeekday(from: DayString, weekday: number): DayString {
   const diff = (weekday - weekdayOf(from) + 7) % 7;
   return addDays(from, diff);
+}
+
+/**
+ * Ende einer Click-&-Collect-Reservierung: Fensterende + pickupHoldHours – aber nie an einem Ruhetag oder
+ * außerhalb der Öffnungszeiten. Fällt das Ende auf einen geschlossenen Tag, gilt die Reservierung bis
+ * Ladenschluss des nächsten Öffnungstags; außerhalb der Öffnungszeit eines offenen Tags bis zu dessen Ladenschluss.
+ */
+export function pickupHoldUntil(
+  settings: Pick<StoreSettings, 'openingHours' | 'pickupHoldHours'>,
+  date: DayString,
+  end: TimeString,
+): ISODate {
+  const base = new Date(berlinDate(date, end).getTime() + Math.max(0, settings.pickupHoldHours || 0) * 3_600_000);
+  const day = dayString(base);
+  const hours = settings.openingHours ?? {};
+  const today = hours[weekdayOf(day)];
+  if (today) {
+    const time = timeString(base);
+    if (time >= today.open && time <= today.close) return base.toISOString();
+    return berlinDate(day, today.close).toISOString();
+  }
+  for (let i = 1; i <= 7; i++) {
+    const next = addDays(day, i);
+    const h = hours[weekdayOf(next)];
+    if (h) return berlinDate(next, h.close).toISOString();
+  }
+  return base.toISOString();
 }

@@ -1,6 +1,6 @@
 import { Lock } from 'lucide-react';
 import { formatEuro } from '@shared/format';
-import { useUi } from '@/stores/ui';
+import { StickyActionBar } from '@/components/layout/StickyActionBar';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/cn';
 
@@ -10,33 +10,44 @@ export interface MobileOrderBarProps {
   placing: boolean;
   onPlace: () => void;
   hint?: string;
+  /** Leiste schon ab dieser Breite ausblenden (z. B. 'md', wenn die Zusammenfassung daneben steht) */
+  hideFrom?: 'md' | 'lg';
 }
 
 /**
- * Schwebende Bestellleiste auf dem Handy (über der Tab-Leiste).
- * Ist die Demo-Pille sichtbar, schwebt die Leiste darüber, damit nichts verdeckt wird.
+ * Bestellleiste auf dem Handy – bündig über der Tab-Leiste angedockt (StickyActionBar).
+ * Betrag und Bezeichnung links (zweizeilig, nie gekürzt), Bestell-Button rechts flexibel.
+ * `hidden`: solange der Bestell-Button der Zusammenfassung sichtbar ist, wird die Leiste nicht gebraucht.
  */
-export function MobileOrderBar({ total, hidden, placing, onPlace, hint }: MobileOrderBarProps) {
-  const demoPill = useUi((s) => s.demoBarVisible);
+export function MobileOrderBar({ total, hidden, placing, onPlace, hint, hideFrom = 'lg' }: MobileOrderBarProps) {
+  const payout = total !== undefined && total < 0;
+  // ausgeblendet (Bestell-Button der Zusammenfassung ist sichtbar): Leiste ganz entfernen, damit
+  // --sticky-bar-h wieder 0 ist und Footer/Demo-Pille nicht unnötig ausweichen
+  if (hidden) return null;
   return (
-    <div
-      className={cn(
-        'fixed inset-x-3 z-30 transition-[transform,opacity] duration-200 lg:hidden',
-        demoPill ? 'bottom-[calc(env(safe-area-inset-bottom)+8rem)]' : 'bottom-tabbar',
-        hidden ? 'pointer-events-none translate-y-4 opacity-0' : 'translate-y-0 opacity-100',
-      )}
-      aria-hidden={hidden || undefined}
-    >
-      <div className="mx-auto flex max-w-lg items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/95 p-2.5 pl-4 shadow-pop backdrop-blur-md">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{total !== undefined && total < 0 ? 'Auszahlung' : 'Gesamt'}</p>
-          <p className="truncate text-lg font-bold leading-tight tabular-nums text-slate-900">{total === undefined ? '…' : formatEuro(Math.abs(total))}</p>
-          {hint ? <p className="truncate text-[11px] leading-tight text-slate-500">{hint}</p> : null}
+    <StickyActionBar className={cn('animate-fade-in', hideFrom === 'md' && 'md:hidden')}>
+      <div className="flex items-center gap-3">
+        <div className="shrink-0">
+          <p className="text-[11px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
+            {payout ? 'Auszahlung' : 'Gesamt'}
+            {hint ? <span className="font-medium normal-case tracking-normal"> · {hint}</span> : null}
+          </p>
+          <p className="whitespace-nowrap text-lg font-bold leading-tight tabular-nums text-slate-900" aria-live="polite">
+            {total === undefined ? '…' : formatEuro(Math.abs(total))}
+          </p>
         </div>
-        <Button icon={Lock} loading={placing} onClick={onPlace} tabIndex={hidden ? -1 : undefined} className="h-12 px-4">
-          Zahlungspflichtig bestellen
-        </Button>
+        <div className="min-w-0 flex-1">
+          <Button
+            icon={Lock}
+            loading={placing}
+            onClick={onPlace}
+            block
+            className="h-12 px-3 max-[359px]:[&>svg]:hidden"
+          >
+            <span className="block whitespace-normal text-center text-[15px] leading-tight">Zahlungspflichtig bestellen</span>
+          </Button>
+        </div>
       </div>
-    </div>
+    </StickyActionBar>
   );
 }

@@ -130,6 +130,8 @@ function validateSettings(input: StoreSettings, current: StoreSettings): StoreSe
   }
   const announcement = text(input.announcement, 300);
   if (announcement) settings.announcement = announcement;
+  // Demo-Autobestätigung: nur ein ausdrückliches true schaltet sie ein; fehlt das Feld, bleibt der bisherige Wert
+  settings.demoAutoConfirm = typeof input.demoAutoConfirm === 'boolean' ? input.demoAutoConfirm : current.demoAutoConfirm === true;
   return settings;
 }
 

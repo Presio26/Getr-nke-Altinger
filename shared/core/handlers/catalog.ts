@@ -3,7 +3,7 @@
  * Öffentlich – Preise richten sich nach dem angemeldeten Kunden.
  */
 import { ApiError, type CoreHandlers, type Ctx } from '../../api';
-import type { CheckoutInput, Customer, Product } from '../../types';
+import type { CheckoutInput, Customer, Product, Quote } from '../../types';
 import { isDayString, todayString } from '../../time';
 import type { Engine } from '../engine';
 import { findProduct } from '../access';
@@ -31,6 +31,27 @@ export function normalizeCheckoutInput(input: CheckoutInput | undefined | null):
     carryService: !!input.carryService,
     fulfillment: input.fulfillment === 'pickup' ? 'pickup' : input.fulfillment === 'delivery' ? 'delivery' : input.fulfillment,
   };
+}
+
+/** Angebot inkl. Prüfung des gewählten Zeitfensters (Hinweis statt Fehler) – Kunde, Gast oder Markt im Namen des Kunden */
+export function quoteFor(e: Engine, customer: Customer | null, input: CheckoutInput, now: Date): Quote {
+  const quote = calculateQuote(input, quoteContextFor(e, customer, now));
+  if (input.slotId) {
+    const parsed = parseSlotId(input.slotId);
+    const slot = parsed && parsed.type === input.fulfillment ? findSlot(e.db.settings, e.db.orders, input.slotId, now) : null;
+    if (!slot) {
+      quote.warnings.push({ code: 'slot', message: 'Das gewählte Zeitfenster ist nicht verfügbar. Bitte wählen Sie ein anderes.' });
+    } else if (!slot.available) {
+      quote.warnings.push({
+        code: 'slot',
+        message:
+          slot.reason === 'Ausgebucht'
+            ? 'Das gewählte Zeitfenster ist inzwischen ausgebucht. Bitte wählen Sie ein anderes.'
+            : 'Für das gewählte Zeitfenster ist der Bestellschluss überschritten. Bitte wählen Sie ein späteres.',
+      });
+    }
+  }
+  return quote;
 }
 
 export function catalogHandlers(
@@ -73,25 +94,7 @@ export function catalogHandlers(
     },
 
     quote(ctx, rawInput) {
-      const input = normalizeCheckoutInput(rawInput);
-      const customer = ctxCustomer(e, ctx);
-      const quote = calculateQuote(input, quoteContextFor(e, customer, ctx.now));
-      if (input.slotId) {
-        const parsed = parseSlotId(input.slotId);
-        const slot = parsed && parsed.type === input.fulfillment ? findSlot(e.db.settings, e.db.orders, input.slotId, ctx.now) : null;
-        if (!slot) {
-          quote.warnings.push({ code: 'slot', message: 'Das gewählte Zeitfenster ist nicht verfügbar. Bitte wählen Sie ein anderes.' });
-        } else if (!slot.available) {
-          quote.warnings.push({
-            code: 'slot',
-            message:
-              slot.reason === 'Ausgebucht'
-                ? 'Das gewählte Zeitfenster ist inzwischen ausgebucht. Bitte wählen Sie ein anderes.'
-                : 'Für das gewählte Zeitfenster ist der Bestellschluss überschritten. Bitte wählen Sie ein späteres.',
-          });
-        }
-      }
-      return quote;
+      return quoteFor(e, ctxCustomer(e, ctx), normalizeCheckoutInput(rawInput), ctx.now);
     },
 
     rentalAvailability(ctx, date) {

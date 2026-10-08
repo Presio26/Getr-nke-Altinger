@@ -23,7 +23,7 @@ import { Avatar, Badge, Button, Card, IconButton, Spinner } from '@/components/u
 import { STOP_COLORS } from '@/components/map';
 import { cn } from '@/lib/cn';
 import { orderCrates } from '../model';
-import { B2BTag, CapacityBar, MiniStat } from './OrderBits';
+import { B2BIcon, CapacityBar, MiniStat } from './OrderBits';
 
 export interface TourCardProps {
   tour: TourWithOrders;
@@ -88,6 +88,7 @@ export function TourCard({
   const editable = !completed && !sim;
   const done = tour.stops.filter((s) => s.status === 'delivered' || s.status === 'failed').length;
   const color = driver?.color ?? tour.driver?.color ?? '#1d58a0';
+  const vehicle = driver?.vehicle ?? tour.driver?.vehicle;
   const lastOpen = [...tour.stops].reverse().find((s) => s.eta && s.status === 'pending');
   const backLeg = tour.route?.legs[tour.stops.length];
   const backAt = lastOpen?.eta && backLeg ? new Date(Date.parse(lastOpen.eta) + 4 * 60_000 + backLeg.duration * 1000).toISOString() : undefined;
@@ -102,10 +103,12 @@ export function TourCard({
       <button type="button" onClick={onSelect} className="flex w-full items-start gap-3 px-4 pb-3 pt-3.5 text-left" aria-pressed={selected}>
         <Avatar name={driver?.name ?? tour.driver?.name ?? 'Fahrer'} color={color} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold text-slate-900">{tour.name}</p>
-          <p className="truncate text-sm text-slate-500">
-            {driver?.name ?? tour.driver?.name ?? 'Unbekannter Fahrer'}
-            {driver?.vehicle ? ` · ${driver.vehicle}` : ''}
+          <p className="line-clamp-2 text-[15px] font-semibold leading-snug text-slate-900" title={tour.name}>
+            {tour.name}
+          </p>
+          <p className="mt-0.5 text-sm leading-snug text-slate-500">
+            <span className="font-medium text-slate-600">{driver?.name ?? tour.driver?.name ?? 'Unbekannter Fahrer'}</span>
+            {vehicle ? <span className="block truncate text-[13px]" title={vehicle}>{vehicle}</span> : null}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -137,6 +140,7 @@ export function TourCard({
           const prevMovable = i > 0 && stops[i - 1].status === 'pending';
           const nextMovable = i < stops.length - 1 && stops[i + 1].status === 'pending';
           const current = tour.status === 'active' && tour.stops[tour.currentStopIndex]?.orderId === s.orderId;
+          const address = o?.address ? `${o.address.street}, ${o.address.zip} ${o.address.city.replace(' b. München', '')}` : '–';
           return (
             <li key={s.orderId} className={cn('flex items-center gap-2.5 px-4 py-2.5', current && 'bg-accent-50/60')}>
               <span
@@ -148,14 +152,20 @@ export function TourCard({
               </span>
               <div className="min-w-0 flex-1">
                 {o ? (
-                  <Link to={`/admin/bestellungen/${o.id}`} className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-slate-900 hover:text-brand-700 hover:underline">
-                    <span className="truncate">{o.customerName}</span>
-                    <B2BTag type={o.customerType} />
+                  <Link
+                    to={`/admin/bestellungen/${o.id}`}
+                    className="line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-900 hover:text-brand-700 hover:underline"
+                    title={`${o.number} · ${o.customerName}`}
+                  >
+                    {o.customerName}
+                    <B2BIcon type={o.customerType} />
                   </Link>
                 ) : (
                   <span className="text-sm text-slate-400">Auftrag nicht gefunden</span>
                 )}
-                <p className="truncate text-xs text-slate-500">{o?.address ? `${o.address.street}, ${o.address.zip} ${o.address.city.replace(' b. München', '')}` : '–'}</p>
+                <p className="line-clamp-2 text-xs leading-snug text-slate-500" title={address}>
+                  {address}
+                </p>
               </div>
               <div className="w-[3.75rem] shrink-0 text-right leading-tight">
                 {s.status === 'pending' && s.eta && !completed ? (

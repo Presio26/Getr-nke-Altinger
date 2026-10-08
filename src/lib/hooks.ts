@@ -33,13 +33,103 @@ export function useDebouncedValue<T>(value: T, delayMs = 300): T {
 }
 
 const TITLE_SUFFIX = 'Getränke Altinger';
+const DEFAULT_TITLE = `${TITLE_SUFFIX} – Getränke liefern & reservieren in Garching`;
 
-/** Fenstertitel setzen: "Sortiment · Getränke Altinger" */
-export function useDocumentTitle(title: string | null | undefined): void {
+/**
+ * Fenstertitel – einheitliches Schema, zentral gelöst (Seiten müssen nichts beachten):
+ *   Shop:    "<Seite> · Getränke Altinger"
+ *   Fahrer:  "<Seite> · Fahrer · Getränke Altinger"
+ *   Markt:   "<Seite> · Markt · Getränke Altinger"
+ * Der Bereich ergibt sich aus dem Pfad (/fahrer, /admin). Seiten-Titel (useDocumentTitle, PageHeader)
+ * haben Vorrang vor dem Rückfall-Titel des Layouts (useFallbackDocumentTitle); bei mehreren Seiten-Titeln
+ * gewinnt der zuletzt angemeldete (die Seite selbst vor ihrem PageHeader).
+ */
+interface TitleEntry {
+  id: number;
+  title: string | null;
+  fallback: boolean;
+}
+
+const titleEntries: TitleEntry[] = [];
+let titleSeq = 0;
+
+function titleArea(pathname: string): 'Markt' | 'Fahrer' | null {
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'Markt';
+  if (pathname === '/fahrer' || pathname.startsWith('/fahrer/')) return 'Fahrer';
+  return null;
+}
+
+/** "Live-Karte · Markt" → "Live-Karte" (Bereich und Marke hängt das Schema selbst an) */
+function stripSuffix(title: string, area: string | null): string {
+  let t = title.trim();
+  const tails = [` · ${TITLE_SUFFIX}`, ...(area ? [` · ${area}`] : [])];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const tail of tails) {
+      if (t.endsWith(tail)) {
+        t = t.slice(0, -tail.length).trim();
+        changed = true;
+      }
+    }
+  }
+  return t;
+}
+
+/** Titel nach Schema zusammensetzen (exportiert für Tests/Sonderfälle) */
+export function formatDocumentTitle(title: string | null | undefined, pathname: string): string {
+  const area = titleArea(pathname);
+  const base = title ? stripSuffix(title, area) : '';
+  if (!base) {
+    if (area === 'Markt') return `Markt-Dashboard · ${TITLE_SUFFIX}`;
+    if (area === 'Fahrer') return `Fahrer-App · ${TITLE_SUFFIX}`;
+    return DEFAULT_TITLE;
+  }
+  return area ? `${base} · ${area} · ${TITLE_SUFFIX}` : `${base} · ${TITLE_SUFFIX}`;
+}
+
+function pickTitle(fallback: boolean): string | null {
+  for (let i = titleEntries.length - 1; i >= 0; i--) {
+    const e = titleEntries[i];
+    if (e.fallback === fallback && e.title) return e.title;
+  }
+  return null;
+}
+
+/** Fenstertitel aus den angemeldeten Titeln neu setzen (z. B. nach einem Seitenwechsel) */
+export function refreshDocumentTitle(): void {
+  if (typeof document === 'undefined') return;
+  const next = formatDocumentTitle(pickTitle(false) ?? pickTitle(true), window.location.pathname);
+  if (document.title !== next) document.title = next;
+}
+
+function useTitleEntry(title: string | null | undefined, fallback: boolean): void {
+  const entry = useRef<TitleEntry | null>(null);
   useEffect(() => {
-    if (typeof document === 'undefined') return;
-    document.title = title ? `${title} · ${TITLE_SUFFIX}` : `${TITLE_SUFFIX} – Getränke liefern & reservieren in Garching`;
-  }, [title]);
+    const e: TitleEntry = { id: ++titleSeq, title: null, fallback };
+    entry.current = e;
+    titleEntries.push(e);
+    return () => {
+      const i = titleEntries.indexOf(e);
+      if (i !== -1) titleEntries.splice(i, 1);
+      entry.current = null;
+      refreshDocumentTitle();
+    };
+  }, [fallback]);
+  useEffect(() => {
+    if (entry.current) entry.current.title = title?.trim() || null;
+    refreshDocumentTitle();
+  }, [title, fallback]);
+}
+
+/** Fenstertitel der Seite setzen: "Sortiment" → "Sortiment · Getränke Altinger" (null = Standardtitel) */
+export function useDocumentTitle(title: string | null | undefined): void {
+  useTitleEntry(title, false);
+}
+
+/** Rückfall-Titel eines Layouts (gilt nur, solange die Seite keinen eigenen Titel setzt) */
+export function useFallbackDocumentTitle(title: string | null | undefined): void {
+  useTitleEntry(title, true);
 }
 
 /** Klick außerhalb eines Elements oder Esc (Dropdowns, Popover) */

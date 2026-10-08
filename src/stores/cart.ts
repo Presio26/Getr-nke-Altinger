@@ -42,6 +42,11 @@ export interface CartState extends CartData {
   set(patch: Partial<CartData>): void;
   /** Warenkorb leeren (nach Bestellung). Behält Präferenzen: Lieferart, Adresse, Zahlart, Kostenstelle. */
   clear(): void;
+  /**
+   * Alles auf den Ausgangsstand (Demo-Reset): Artikel, Leergut, Gutschein, Festdatum, Kommission, Zeitfenster,
+   * Adresse, Notizen … – nur die Zuordnung zum angemeldeten Kunden bleibt.
+   */
+  reset(): void;
   /** Anzahl Gebinde im Warenkorb */
   count(): number;
   /** Menge eines Artikels im Warenkorb */
@@ -104,6 +109,20 @@ export const useCart = create<CartState>()(
       clear() {
         const { fulfillment, addressId, paymentMethod, costCenter, ownerId } = get();
         set({ ...INITIAL, fulfillment, addressId, paymentMethod, costCenter, ownerId, slotId: undefined, couponCode: undefined, notes: undefined, reference: undefined, eventDate: undefined });
+      },
+      reset() {
+        const { ownerId } = get();
+        set({
+          ...INITIAL,
+          ownerId,
+          slotId: undefined,
+          addressId: undefined,
+          couponCode: undefined,
+          notes: undefined,
+          reference: undefined,
+          costCenter: undefined,
+          eventDate: undefined,
+        });
       },
       count() {
         return get().items.reduce((sum, i) => sum + i.qty, 0);

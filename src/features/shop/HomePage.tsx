@@ -31,6 +31,7 @@ import { HeroArt, TEASER_ART } from './components/HeroArt';
 import { CategoryIcon, categoryTint } from './components/CategoryIcon';
 import { ProductCardSkeleton, ProductRail } from './components/ProductRail';
 import { ZipCheck } from './components/ZipCheck';
+import { PersonalCard } from './components/PersonalCard';
 import { OpenBadge, StoreMapCard } from './components/store';
 import { ReorderCard, useLastOrder } from './components/ReorderCard';
 import { popularity } from './components/catalog';
@@ -41,6 +42,8 @@ import { hasActiveOffer } from './components/offers';
 function Hero() {
   const user = useSession((s) => s.user);
   const business = user?.role === 'business';
+  // angemeldet (Privat- wie Geschäftskunde): mobil ohne große Illustration, damit die persönliche Karte ins erste Bild rückt
+  const compact = business || user?.role === 'customer';
   const settings = useSettings();
   const home = settings.zones.find((z) => z.zips.includes(settings.zip));
   const greeting = user && (user.role === 'customer' || business) ? `Willkommen zurück, ${user.name}` : null;
@@ -50,7 +53,7 @@ function Hero() {
       aria-labelledby="hero-title"
       className={cn(
         'relative -mx-4 -mt-5 overflow-hidden bg-gradient-to-br from-brand-600 via-brand-800 to-brand-950 pb-16 text-white sm:mx-0 sm:mt-0 sm:rounded-3xl sm:pb-20 lg:pb-16',
-        business && 'max-sm:pb-14',
+        compact && 'max-sm:pb-14',
       )}
     >
       {/* dezentes Muster */}
@@ -115,7 +118,7 @@ function Hero() {
         <HeroArt
           className={cn(
             'mx-auto -mb-6 -mt-2 aspect-[16/11] w-full max-w-[21rem] sm:mt-0 sm:max-w-md lg:-mb-4 lg:max-w-none',
-            business && 'max-sm:hidden',
+            compact && 'max-sm:hidden',
           )}
         />
       </div>
@@ -237,10 +240,10 @@ function BusinessPortal({ overlap = false }: { overlap?: boolean }) {
             Sie können bereits bestellen und sehen Nettopreise. Rechnungskauf und Ihre Konditionen schalten wir nach der Prüfung frei.
           </Notice>
         ) : null}
-        <ul className="grid grid-cols-2 gap-px bg-slate-100 lg:grid-cols-4">
+        <ul className="grid grid-cols-1 gap-px bg-slate-100 min-[480px]:grid-cols-2 lg:grid-cols-4">
           {tiles.map((t) => (
             <li key={t.to} className="bg-white">
-              <Link to={t.to} className="group flex h-full items-start gap-3 p-4 transition-colors hover:bg-slate-50 sm:p-5">
+              <Link to={t.to} className="group flex h-full min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50 sm:items-start sm:p-5">
                 <span
                   className={cn(
                     'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
@@ -249,13 +252,15 @@ function BusinessPortal({ overlap = false }: { overlap?: boolean }) {
                 >
                   <t.icon size={20} aria-hidden />
                 </span>
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1 text-[15px] font-semibold text-slate-900">
-                    {t.title}
-                    <ChevronRight size={16} aria-hidden className="text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-600" />
-                  </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words text-[15px] font-semibold leading-snug text-slate-900 [hyphens:auto]">{t.title}</span>
                   <span className="mt-0.5 block text-[13px] leading-snug text-slate-500">{t.text}</span>
                 </span>
+                <ChevronRight
+                  size={18}
+                  aria-hidden
+                  className="shrink-0 self-center text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-600"
+                />
               </Link>
             </li>
           ))}
@@ -442,7 +447,7 @@ export default function HomePage() {
         <BusinessPortal overlap />
       ) : (
         <>
-          <ZipCard />
+          {role === 'customer' && status === 'authenticated' ? <PersonalCard /> : <ZipCard />}
           <Benefits />
         </>
       )}

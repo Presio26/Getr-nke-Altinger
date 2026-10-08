@@ -23,18 +23,18 @@ import { formatDate, formatEuro, formatLiters } from '@shared/format';
 import { addDays, todayString } from '@shared/time';
 import { computePrice, useDepositTypes, useMyCustomer, useProducts, usePrice } from '@/api/hooks';
 import { useCart } from '@/stores/cart';
-import { useUi } from '@/stores/ui';
 import { cn } from '@/lib/cn';
-import { ProductImage, productTint } from '@/components/product';
-import { Badge, Button, Card, Input, QuantityStepper, SegmentedControl, Skeleton, Switch, toast } from '@/components/ui';
+import { ProductImage, productTint, useTouchStepperSize } from '@/components/product';
+import { Badge, Button, Card, Input, QuantityStepper, SegmentedControl, Skeleton, toast } from '@/components/ui';
+import { StickyActionBar } from '@/components/layout/StickyActionBar';
 import { ChipGroup } from '@/features/account/components/ChipGroup';
 import { BEER_OPTIONS, buildPlan, DEFAULT_INPUT, MIX_PRESETS, RATES, rebalance, type BeerChoice, type Mix, type PlanGroup, type PlannerInput } from '../lib/planner';
 import { isValidEventDate, useRentalAvailability } from '../lib/useRentalAvailability';
 
-const MIX_META: { key: keyof Mix; label: string; icon: LucideIcon; color: string; accent: string }[] = [
-  { key: 'beer', label: 'Bier', icon: Beer, color: '#d97706', accent: 'accent-amber-600' },
-  { key: 'wine', label: 'Wein & Sekt', icon: Wine, color: '#9f1239', accent: 'accent-rose-700' },
-  { key: 'soft', label: 'Alkoholfrei', icon: CupSoda, color: '#0d9488', accent: 'accent-teal-600' },
+const MIX_META: { key: keyof Mix; label: string; icon: LucideIcon; color: string }[] = [
+  { key: 'beer', label: 'Bier', icon: Beer, color: '#d97706' },
+  { key: 'wine', label: 'Wein & Sekt', icon: Wine, color: '#9f1239' },
+  { key: 'soft', label: 'Alkoholfrei', icon: CupSoda, color: '#0d9488' },
 ];
 
 const GROUP_TITLE: Record<PlanGroup, string> = {
@@ -58,7 +58,9 @@ function Field({ label, aside, children, icon: Icon }: { label: string; aside?: 
   );
 }
 
-function Range({ value, min, max, step = 1, onChange, label, className }: { value: number; min: number; max: number; step?: number; onChange: (n: number) => void; label: string; className?: string }) {
+/** Schieberegler mit großer Trefferfläche (44 px) und Daumen (28 px); Füllfarbe je Getränk */
+function Range({ value, min, max, step = 1, onChange, label, color = 'var(--color-brand-700)', className }: { value: number; min: number; max: number; step?: number; onChange: (n: number) => void; label: string; color?: string; className?: string }) {
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min || 1)) * 100));
   return (
     <input
       type="range"
@@ -68,9 +70,55 @@ function Range({ value, min, max, step = 1, onChange, label, className }: { valu
       value={value}
       aria-label={label}
       onChange={(e) => onChange(Number(e.target.value))}
-      className={cn('h-2 w-full cursor-pointer accent-brand-700', className)}
+      style={{ ['--range-fill' as string]: color, ['--range-pct' as string]: `${pct}%` }}
+      className={cn(
+        'h-11 w-full cursor-pointer touch-pan-y appearance-none bg-transparent focus-visible:outline-none',
+        '[&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full',
+        '[&::-webkit-slider-runnable-track]:bg-[linear-gradient(to_right,var(--range-fill)_var(--range-pct),var(--color-slate-200)_var(--range-pct))]',
+        '[&::-webkit-slider-thumb]:-mt-2.5 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full',
+        '[&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[var(--range-fill)] [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md',
+        'focus-visible:[&::-webkit-slider-thumb]:ring-4 focus-visible:[&::-webkit-slider-thumb]:ring-brand-200',
+        '[&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-slate-200',
+        '[&::-moz-range-progress]:h-2 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-[var(--range-fill)]',
+        '[&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-[var(--range-fill)] [&::-moz-range-thumb]:bg-white',
+        className,
+      )}
     />
   );
+}
+
+/** Ganze Zeile als Schalter (Beschriftung und Beschreibung sind klickbar, Trefferfläche ≥ 44 px) */
+function ToggleRow({ checked, onChange, icon: Icon, label, description }: { checked: boolean; onChange: (v: boolean) => void; icon: LucideIcon; label: string; description: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex min-h-14 w-full items-center justify-between gap-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+    >
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 text-[15px] font-medium text-slate-800">
+          <Icon size={16} aria-hidden className="shrink-0 text-slate-400" /> {label}
+        </span>
+        <span className="mt-0.5 block text-sm text-slate-500">{description}</span>
+      </span>
+      <span aria-hidden className={cn('relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200', checked ? 'bg-brand-700' : 'bg-slate-300')}>
+        <span
+          className={cn(
+            'inline-block h-5.5 w-5.5 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-200',
+            checked ? 'translate-x-[1.375rem]' : 'translate-x-[0.25rem]',
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
+/** Jahreszeit aus dem Festdatum: Mai–September = Sommer */
+function seasonFor(day: string): PlannerInput['season'] {
+  const month = Number(day.slice(5, 7));
+  return month >= 5 && month <= 9 ? 'summer' : 'winter';
 }
 
 interface RowProps {
@@ -84,32 +132,37 @@ interface RowProps {
 
 function PlanRow({ product, qty, recommended, reason, limit, onChange }: RowProps) {
   const price = usePrice(product, Math.max(1, qty));
+  const stepper = useTouchStepperSize();
   const line = price.showNet ? price.price.lineNet : price.price.lineGross;
   const off = qty === 0;
   const max = product.isRental ? Math.max(0, limit?.available ?? product.stock) : 999;
   return (
-    <li className={cn('flex items-center gap-3 py-3', off && 'opacity-55')}>
-      <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl" style={{ background: productTint(product) }}>
-        <ProductImage product={product} className="absolute inset-0 p-0.5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900">
-          {product.isRental ? product.name : `${product.brand} ${product.name}`}
+    <li className="py-3">
+      <div className={cn('flex gap-3', off && 'opacity-55')}>
+        <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl" style={{ background: productTint(product) }}>
+          <ProductImage product={product} className="absolute inset-0 p-0.5" />
         </span>
-        <span className="line-clamp-2 text-xs text-slate-500">{reason}</span>
-        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
-          <span className="font-semibold tabular-nums text-slate-800">{off ? 'nicht übernommen' : formatEuro(line)}</span>
-          {!off && qty > 1 ? <span className="hidden tabular-nums text-slate-400 sm:inline">{qty} × {formatEuro(price.displayUnit)}</span> : null}
-          {qty !== recommended && !off ? <span className="text-slate-400">· Empfehlung {recommended}</span> : null}
-        </span>
-        {limit && limit.available < recommended ? (
-          <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-amber-700">
-            <AlertTriangle size={12} aria-hidden />
-            {limit.available ? `nur noch ${limit.available} von ${limit.total} frei` : 'an diesem Tag ausgebucht'}
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-sm font-semibold leading-snug text-slate-900">
+            {product.isRental ? product.name : `${product.brand} ${product.name}`}
           </span>
-        ) : null}
-      </span>
-      <QuantityStepper value={qty} onChange={onChange} min={0} max={max} size="sm" removeAtMin label={product.name} />
+          <span className="block text-xs leading-snug text-slate-500">{reason}</span>
+          {limit && limit.available < recommended ? (
+            <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-amber-700">
+              <AlertTriangle size={12} aria-hidden />
+              {limit.available ? `nur noch ${limit.available} von ${limit.total} frei` : 'an diesem Tag ausgebucht'}
+            </span>
+          ) : null}
+        </span>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-3 pl-15">
+        <span className="min-w-0 text-xs">
+          <span className={cn('block font-semibold tabular-nums text-slate-800', off && 'opacity-55')}>{off ? 'nicht übernommen' : formatEuro(line)}</span>
+          {!off && qty > 1 ? <span className="block tabular-nums text-slate-400">{qty} × {formatEuro(price.displayUnit)}</span> : null}
+          {qty !== recommended && !off ? <span className="block text-slate-400">Empfehlung {recommended}</span> : null}
+        </span>
+        <QuantityStepper value={qty} onChange={onChange} min={0} max={max} size={stepper} removeAtMin label={product.name} className="shrink-0" />
+      </div>
     </li>
   );
 }
@@ -152,11 +205,14 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
   const { data: customer } = useMyCustomer();
   const depositTypes = useDepositTypes();
   const navigate = useNavigate();
-  const [input, setInput] = useState<PlannerInput>(DEFAULT_INPUT);
+  const [input, setInput] = useState<PlannerInput>(() => ({
+    ...DEFAULT_INPUT,
+    season: seasonFor(isValidEventDate(eventDate) ? eventDate : todayString()),
+  }));
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const availability = useRentalAvailability(eventDate);
   const tomorrow = addDays(todayString(), 1);
-  const demoBar = useUi((st) => st.demoBarVisible);
+  const stepper = useTouchStepperSize();
 
   // Mobil: schwebende Zusammenfassung, solange der Planer sichtbar ist und der Abschluss-Bereich noch nicht
   const rootRef = useRef<HTMLDivElement>(null);
@@ -187,6 +243,14 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
 
   const productMap = useMemo(() => new Map((products ?? []).filter((p) => p.active).map((p) => [p.id, p])), [products]);
   const plan = useMemo(() => buildPlan(input, productMap), [input, productMap]);
+
+  // Jahreszeit folgt dem Festdatum (bleibt danach von Hand änderbar)
+  const [seasonFromDate, setSeasonFromDate] = useState(isValidEventDate(eventDate));
+  useEffect(() => {
+    if (!isValidEventDate(eventDate)) return;
+    setInput((prev) => (prev.season === seasonFor(eventDate) ? prev : { ...prev, season: seasonFor(eventDate) }));
+    setSeasonFromDate(true);
+  }, [eventDate]);
 
   // Eigene Mengen gelten nur für die aktuelle Empfehlung
   const inputKey = JSON.stringify(input);
@@ -259,12 +323,19 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
             error={eventDate && !dateOk ? 'Bitte ein Datum ab morgen wählen.' : undefined}
             hint={dateOk ? formatDate(eventDate, 'long') : 'Für Leihartikel und Kommissionsware'}
           />
-          <Field label="Jahreszeit" icon={input.season === 'summer' ? Sun : Snowflake}>
+          <Field
+            label="Jahreszeit"
+            icon={input.season === 'summer' ? Sun : Snowflake}
+            aside={seasonFromDate && dateOk ? <span className="text-xs font-medium text-slate-500">nach Festdatum</span> : undefined}
+          >
             <SegmentedControl
               block
               aria-label="Jahreszeit"
               value={input.season}
-              onChange={(v) => set('season', v as PlannerInput['season'])}
+              onChange={(v) => {
+                setSeasonFromDate(false);
+                set('season', v as PlannerInput['season']);
+              }}
               options={[
                 { value: 'summer', label: 'Sommer', icon: Sun },
                 { value: 'winter', label: 'Winter', icon: Snowflake },
@@ -273,18 +344,20 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
           </Field>
         </div>
 
-        <Field label="Gäste" icon={Users} aside={`${input.guests} Personen`}>
-          <div className="flex items-center gap-4">
-            <Range value={Math.min(300, input.guests)} min={10} max={300} step={5} onChange={(n) => set('guests', n)} label="Anzahl Gäste" />
-            <QuantityStepper value={input.guests} onChange={(n) => set('guests', Math.max(5, n))} min={5} max={999} size="sm" label="Gäste" />
-          </div>
+        <Field
+          label="Gäste"
+          icon={Users}
+          aside={<QuantityStepper value={input.guests} onChange={(n) => set('guests', Math.max(5, n))} min={5} max={999} size={stepper} label="Gäste" className="shrink-0" />}
+        >
+          <Range value={Math.min(300, input.guests)} min={10} max={300} step={5} onChange={(n) => set('guests', n)} label="Anzahl Gäste" />
         </Field>
 
-        <Field label="Dauer" icon={Clock} aside={`${input.hours} Stunden`}>
-          <div className="flex items-center gap-4">
-            <Range value={input.hours} min={2} max={12} onChange={(n) => set('hours', n)} label="Dauer in Stunden" />
-            <QuantityStepper value={input.hours} onChange={(n) => set('hours', Math.max(1, n))} min={1} max={24} size="sm" label="Stunden" />
-          </div>
+        <Field
+          label="Dauer in Stunden"
+          icon={Clock}
+          aside={<QuantityStepper value={input.hours} onChange={(n) => set('hours', Math.max(1, n))} min={1} max={24} size={stepper} label="Stunden" className="shrink-0" />}
+        >
+          <Range value={Math.min(12, input.hours)} min={2} max={12} onChange={(n) => set('hours', n)} label="Dauer in Stunden" />
         </Field>
 
         <Field label="Getränke-Mix" icon={PartyPopper}>
@@ -306,14 +379,22 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
           </div>
           <div className="space-y-3.5">
             {MIX_META.map((m) => (
-              <div key={m.key} className="grid grid-cols-[7.5rem_minmax(0,1fr)_3rem] items-center gap-3 sm:grid-cols-[9rem_minmax(0,1fr)_3rem]">
+              <div key={m.key} className="grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-x-3 sm:grid-cols-[9rem_minmax(0,1fr)_3rem]">
                 <span className="flex items-center gap-2 text-sm font-medium text-slate-700">
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: `${m.color}1a`, color: m.color }}>
                     <m.icon size={15} aria-hidden />
                   </span>
                   {m.label}
                 </span>
-                <Range value={input.mix[m.key]} min={0} max={100} onChange={(n) => set('mix', rebalance(input.mix, m.key, n))} label={`Anteil ${m.label}`} className={m.accent} />
+                <Range
+                  value={input.mix[m.key]}
+                  min={0}
+                  max={100}
+                  onChange={(n) => set('mix', rebalance(input.mix, m.key, n))}
+                  label={`Anteil ${m.label}`}
+                  color={m.color}
+                  className="order-last col-span-2 -mt-1 sm:order-none sm:col-span-1 sm:mt-0"
+                />
                 <span className="text-right text-sm font-semibold tabular-nums text-slate-900">{input.mix[m.key]} %</span>
               </div>
             ))}
@@ -326,6 +407,7 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
             value={input.beer}
             onChange={(v) => set('beer', v)}
             columns={3}
+            stackBelow={400}
             size="sm"
             options={(Object.keys(BEER_OPTIONS) as BeerChoice[]).map((k) => ({
               value: k,
@@ -336,28 +418,14 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
         </Field>
 
         <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 px-4">
-          <Switch
+          <ToggleRow
             checked={input.outdoor}
             onChange={(v) => set('outdoor', v)}
-            className="py-2"
-            label={
-              <span className="inline-flex items-center gap-2">
-                <Tent size={16} aria-hidden className="text-slate-400" /> Feier im Freien
-              </span>
-            }
+            icon={Tent}
+            label="Feier im Freien"
             description="Wir planen Partyzelte ein – im Winter auch Heizstrahler."
           />
-          <Switch
-            checked={input.sekt}
-            onChange={(v) => set('sekt', v)}
-            className="py-2"
-            label={
-              <span className="inline-flex items-center gap-2">
-                <Sparkles size={16} aria-hidden className="text-slate-400" /> Sekt zum Anstoßen
-              </span>
-            }
-            description="Ein Glas zur Begrüßung für alle Gäste."
-          />
+          <ToggleRow checked={input.sekt} onChange={(v) => set('sekt', v)} icon={Sparkles} label="Sekt zum Anstoßen" description="Ein Glas zur Begrüßung für alle Gäste." />
         </div>
 
         <p className="flex gap-2 text-xs leading-relaxed text-slate-500">
@@ -462,22 +530,21 @@ export function PartyPlanner({ eventDate, onEventDateChange }: PartyPlannerProps
       </section>
 
       {showBar && selected.length ? (
-        <div
-          className="fixed inset-x-0 z-20 px-3 animate-fade-in lg:hidden"
-          style={{ bottom: `calc(env(safe-area-inset-bottom) + ${demoBar ? '8rem' : '5.25rem'})` }}
-        >
-          <div className="mx-auto flex max-w-lg items-center gap-3 rounded-2xl bg-brand-950/95 p-2.5 pl-4 text-white shadow-pop ring-1 ring-white/10 backdrop-blur">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs text-white/70">
-                {input.guests} Gäste · {selected.length} Positionen{totals.showNet ? ' · netto' : ''}
+        <StickyActionBar className="animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="shrink-0">
+              <p className="text-xs leading-tight text-slate-500">
+                {input.guests} Gäste · {selected.length} Pos.{totals.showNet ? ' · netto' : ''}
               </p>
-              <p className="text-lg font-bold leading-tight tabular-nums">{formatEuro(totals.total + totals.deposit)}</p>
+              <p className="whitespace-nowrap text-lg font-bold leading-tight tabular-nums text-slate-900">ca. {formatEuro(totals.total + totals.deposit)}</p>
             </div>
-            <Button variant="accent" icon={ShoppingCart} onClick={addAll}>
-              In den Warenkorb
-            </Button>
+            <div className="min-w-0 flex-1">
+              <Button icon={ShoppingCart} onClick={addAll} block className="h-12 px-3">
+                <span className="block whitespace-normal text-center text-[15px] leading-tight">In den Warenkorb</span>
+              </Button>
+            </div>
           </div>
-        </div>
+        </StickyActionBar>
       ) : null}
     </div>
   );

@@ -5,6 +5,7 @@ import {
   Building2,
   ChevronDown,
   CircleUser,
+  Download,
   Heart,
   LayoutDashboard,
   LogIn,
@@ -13,16 +14,19 @@ import {
   Package,
   Recycle,
   Repeat,
+  Sparkles,
   Store,
   Truck,
   type LucideIcon,
 } from 'lucide-react';
 import { useMyCustomer } from '@/api/hooks';
 import { useSession } from '@/stores/session';
+import { useUi } from '@/stores/ui';
 import { useClickOutside } from '@/lib/hooks';
 import { ROLE_LABEL } from '@/lib/roles';
 import { cn } from '@/lib/cn';
 import { Avatar, Badge, ButtonLink, toast } from '@/components/ui';
+import { InstallHelpModal, useInstallAction } from '@/components/pwa/InstallHelp';
 
 interface MenuLink {
   to: string;
@@ -73,6 +77,8 @@ export function AccountMenu({ compact = false, className }: { compact?: boolean;
   const [open, setOpen] = useState(false);
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false), open);
   const navigate = useNavigate();
+  const setDemoOpen = useUi((s) => s.setDemoOpen);
+  const install = useInstallAction();
 
   if (!user) {
     return (
@@ -82,8 +88,10 @@ export function AccountMenu({ compact = false, className }: { compact?: boolean;
     );
   }
 
-  const displayName = customer?.type === 'b2b' ? customer.name : user.name;
-  const first = displayName.split(' ')[0];
+  const company = customer?.type === 'b2b' || user.role === 'business';
+  const displayName = company && customer?.name ? customer.name : user.name;
+  // Firmen: vollständiger Name (gekürzt mit „…“); Personen: Vorname
+  const shortName = company || user.role === 'admin' ? displayName : displayName.split(' ')[0];
   const pending = customer?.b2b?.status === 'pending';
 
   const onLogout = async () => {
@@ -100,12 +108,14 @@ export function AccountMenu({ compact = false, className }: { compact?: boolean;
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex h-11 items-center gap-2 rounded-xl pl-1.5 pr-2 text-left transition-colors hover:bg-slate-100"
+        aria-label={`Kontomenü: ${displayName}`}
+        title={displayName}
+        className="flex h-11 min-w-0 items-center gap-2 rounded-xl pl-1.5 pr-2 text-left transition-colors hover:bg-slate-100"
       >
         <Avatar name={displayName} size="sm" className="ring-0" />
         {!compact ? (
-          <span className="hidden max-w-36 flex-col leading-tight xl:flex">
-            <span className="truncate text-sm font-semibold text-slate-900">{first}</span>
+          <span className="hidden min-w-0 max-w-40 flex-col leading-tight xl:flex">
+            <span className="truncate text-sm font-semibold text-slate-900">{shortName}</span>
             <span className="truncate text-xs text-slate-500">{ROLE_LABEL[user.role]}</span>
           </span>
         ) : null}
@@ -138,6 +148,34 @@ export function AccountMenu({ compact = false, className }: { compact?: boolean;
               </Link>
             ))}
           </div>
+          <div className="border-t border-slate-100 py-1">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                setDemoOpen(true);
+              }}
+              className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+            >
+              <Sparkles size={18} aria-hidden className="text-accent-500" />
+              Demo-Leitfaden &amp; Rollen wechseln
+            </button>
+            {install.available ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  void install.run();
+                }}
+                className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+              >
+                <Download size={18} aria-hidden className="text-slate-400" />
+                Als App installieren
+              </button>
+            ) : null}
+          </div>
           <div className="border-t border-slate-100 pt-1">
             <button
               type="button"
@@ -151,6 +189,7 @@ export function AccountMenu({ compact = false, className }: { compact?: boolean;
           </div>
         </div>
       ) : null}
+      <InstallHelpModal open={install.helpOpen} onClose={install.closeHelp} />
     </div>
   );
 }

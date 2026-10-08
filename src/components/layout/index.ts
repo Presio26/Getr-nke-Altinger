@@ -9,3 +9,4 @@ export { NotificationBell, NotificationItem } from './NotificationBell';
 export { AccountMenu } from './AccountMenu';
 export { ConnectionIndicator, GpsIndicator } from './StatusIndicators';
 export { StickyActionBar, type StickyActionBarProps } from './StickyActionBar';
+export { ConnectionBanner } from './ConnectionBanner';

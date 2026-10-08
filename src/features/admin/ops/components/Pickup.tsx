@@ -1,18 +1,22 @@
 /**
- * Click & Collect: Abhol-Dialog (Kunde, Positionen, Leergut, zu zahlender Betrag, Aktionen)
- * und QR-Scanner per BarcodeDetector-API (nur, wenn der Browser sie unterstützt).
+ * Click & Collect: Abhol-Dialog (Kunde, Positionen, tatsächlich angenommenes Leergut,
+ * zu zahlender Betrag, Aktionen). Der QR-Scanner liegt in `QrScanner.tsx`.
  */
-import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, Banknote, CheckCircle2, CreditCard, PackageCheck, Phone, Receipt, ShoppingBag, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ArrowRight, Banknote, CheckCircle2, CreditCard, PackageCheck, Phone, Receipt, Recycle, ShoppingBag, XCircle } from 'lucide-react';
 import type { Order } from '@shared/types';
 import { PAYMENT_METHOD_LABEL, formatDate, formatDateTime, formatEuro, formatTime } from '@shared/format';
 import { todayString } from '@shared/time';
+import { useDepositTypes } from '@/api/hooks';
 import { Button, ButtonLink, Modal, Notice, OrderStatusBadge } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useOrderStatus } from '../api';
 import { orderCrates, relDayInline } from '../model';
 import { B2BTag } from './OrderBits';
 import { EmptiesList, OrderLinesList, OrderTotals } from './OrderLines';
+import { EmptiesEditor, emptiesRefund, emptiesToLines, linesToEmpties, type EmptiesValue } from './EmptiesEditor';
+
+export { QrScannerModal } from './QrScanner';
 
 // ───────────────────────────── Zahlung ─────────────────────────────
 
@@ -29,11 +33,21 @@ export function paymentInfo(order: Order): { due: boolean; title: string; text: 
 
 export function PickupModal({ order, onClose, onNext }: { order: Order | null; onClose: () => void; onNext?: () => void }) {
   const mutation = useOrderStatus();
+  const depositTypes = useDepositTypes();
   const [target, setTarget] = useState<'ready' | 'picked_up' | null>(null);
   const [justDone, setJustDone] = useState<string | null>(null);
+  const [empties, setEmpties] = useState<EmptiesValue>({});
+  const orderId = order?.id;
   useEffect(() => {
     setJustDone(null);
-  }, [order?.id]);
+    setEmpties(order ? linesToEmpties(order.emptiesReturn) : {});
+    // nur beim Wechsel der Bestellung vorbelegen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId]);
+  const primaryIds = useMemo(
+    () => (order ? [...order.emptiesReturn.map((l) => l.depositTypeId), ...order.lines.map((l) => l.depositTypeId).filter((x): x is string => !!x)] : []),
+    [order],
+  );
   if (!order) return null;
   const pay = paymentInfo(order);
   const today = todayString();
@@ -41,12 +55,23 @@ export function PickupModal({ order, onClose, onNext }: { order: Order | null; o
   const canReady = ['pending', 'confirmed', 'picking'].includes(order.status);
   const canPickup = ['pending', 'confirmed', 'picking', 'ready'].includes(order.status) && order.fulfillment === 'pickup';
   const expired = !!order.holdUntil && Date.parse(order.holdUntil) < Date.now() && !final;
-  const PayIcon = pay.icon;
+
+  // tatsächlich angenommenes Leergut → angepasster Betrag (wie im Core: Gutschrift nach Rücknahme)
+  const announced = linesToEmpties(order.emptiesReturn);
+  const refund = emptiesRefund(empties, depositTypes);
+  const emptiesChanged = emptiesToLines(empties).map((l) => `${l.depositTypeId}:${l.qty}`).sort().join('|') !== order.emptiesReturn.filter((l) => l.qty > 0).map((l) => `${l.depositTypeId}:${l.qty}`).sort().join('|');
+  const amount = order.totals.total - (refund - order.totals.depositRefund);
+  const canEditEmpties = !final && order.fulfillment === 'pickup' && justDone !== 'picked_up';
+  const shownAmount = canEditEmpties && emptiesChanged ? amount : order.totals.total;
+  const shownRefund = canEditEmpties && emptiesChanged ? refund : order.totals.depositRefund;
+  const shownPay = canEditEmpties && emptiesChanged ? paymentInfo({ ...order, totals: { ...order.totals, total: amount } }) : pay;
+  const PayIcon = shownPay.icon;
+  const doneLines = justDone === 'picked_up' ? emptiesToLines(empties) : order.proof?.emptiesCollected ?? order.emptiesReturn;
 
   const run = (to: 'ready' | 'picked_up') => {
     setTarget(to);
     mutation.mutate(
-      { order, to },
+      { order, to, ...(to === 'picked_up' ? { emptiesCollected: emptiesToLines(empties) } : {}) },
       {
         onSuccess: () => setJustDone(to),
         onSettled: () => setTarget(null),
@@ -140,16 +165,21 @@ export function PickupModal({ order, onClose, onNext }: { order: Order | null; o
             {order.reference ? <p className="mt-1 text-sm text-slate-500">Referenz: {order.reference}</p> : null}
             {order.notes ? <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">{order.notes}</p> : null}
           </div>
-          <div className={cn('rounded-2xl p-4 ring-1 ring-inset', pay.due ? 'bg-brand-900 text-white ring-brand-900' : 'bg-emerald-50 text-emerald-900 ring-emerald-200')}>
-            <p className={cn('flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide', pay.due ? 'text-white/70' : 'text-emerald-700')}>
+          <div className={cn('rounded-2xl p-4 ring-1 ring-inset', shownPay.due ? 'bg-brand-900 text-white ring-brand-900' : 'bg-emerald-50 text-emerald-900 ring-emerald-200')}>
+            <p className={cn('flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide', shownPay.due ? 'text-white/70' : 'text-emerald-700')}>
               <PayIcon size={14} aria-hidden />
-              {pay.title}
+              {shownPay.title}
             </p>
-            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight">{formatEuro(Math.abs(order.totals.total))}</p>
-            <p className={cn('mt-0.5 text-sm', pay.due ? 'text-white/80' : 'text-emerald-800')}>
-              {pay.text}
-              {order.totals.depositRefund ? ` · inkl. ${formatEuro(order.totals.depositRefund)} Leergut-Gutschrift` : ''}
+            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight">{formatEuro(Math.abs(shownAmount))}</p>
+            <p className={cn('mt-0.5 text-sm', shownPay.due ? 'text-white/80' : 'text-emerald-800')}>
+              {shownPay.text}
+              {shownRefund ? ` · inkl. ${formatEuro(shownRefund)} Leergut-Gutschrift` : ''}
             </p>
+            {canEditEmpties && emptiesChanged ? (
+              <p className={cn('mt-1.5 text-xs font-semibold', shownPay.due ? 'text-accent-300' : 'text-emerald-700')}>
+                Angepasst an das angenommene Leergut (vorher {formatEuro(Math.abs(order.totals.total))})
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -160,10 +190,23 @@ export function PickupModal({ order, onClose, onNext }: { order: Order | null; o
           <OrderLinesList order={order} compact />
         </div>
         <div className="grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
-          <div>
-            <EmptiesList lines={order.emptiesReturn} title="Leergut annehmen" />
-            {!order.emptiesReturn.length ? <p className="text-sm text-slate-500">Kein Leergut angemeldet.</p> : null}
-          </div>
+          {canEditEmpties ? (
+            <div className="rounded-xl bg-emerald-50/60 p-3 ring-1 ring-inset ring-emerald-100">
+              <p className="mb-0.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-900">
+                <Recycle size={15} aria-hidden />
+                Leergut annehmen
+              </p>
+              <p className="mb-2 text-xs text-emerald-900/80">
+                {order.emptiesReturn.length ? 'Vorbelegt mit der Anmeldung – bitte die tatsächlich gebrachten Mengen erfassen.' : 'Kein Leergut angemeldet. Bringt der Kunde doch welches mit, hier erfassen.'}
+              </p>
+              <EmptiesEditor value={empties} onChange={setEmpties} depositTypes={depositTypes} primaryIds={primaryIds} announced={announced} disabled={mutation.isPending} />
+            </div>
+          ) : (
+            <div>
+              <EmptiesList lines={doneLines} title={justDone === 'picked_up' || order.proof ? 'Leergut angenommen' : 'Leergut angemeldet'} />
+              {!doneLines.length ? <p className="text-sm text-slate-500">Kein Leergut.</p> : null}
+            </div>
+          )}
           <OrderTotals order={order} />
         </div>
         {order.holdUntil && !final && !expired ? (
@@ -176,90 +219,3 @@ export function PickupModal({ order, onClose, onNext }: { order: Order | null; o
   );
 }
 
-// ───────────────────────────── QR-Scanner ─────────────────────────────
-
-interface DetectedBarcode {
-  rawValue: string;
-}
-interface BarcodeDetectorLike {
-  detect(source: HTMLVideoElement): Promise<DetectedBarcode[]>;
-}
-type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
-
-export function QrScannerModal({ open, onClose, onResult }: { open: boolean; onClose: () => void; onResult: (value: string) => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-  const resultRef = useRef(onResult);
-  resultRef.current = onResult;
-
-  useEffect(() => {
-    if (!open) return;
-    setError(null);
-    setReady(false);
-    let stream: MediaStream | null = null;
-    let timer = 0;
-    let stopped = false;
-    const Ctor = (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
-    (async () => {
-      if (!Ctor || !navigator.mediaDevices?.getUserMedia) {
-        setError('Dieser Browser unterstützt das Scannen mit der Kamera nicht. Bitte geben Sie den Code ein.');
-        return;
-      }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-        if (stopped) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        await video.play();
-        setReady(true);
-        const detector = new Ctor({ formats: ['qr_code'] });
-        const tick = async () => {
-          if (stopped) return;
-          try {
-            const codes = await detector.detect(video);
-            const value = codes.find((c) => c.rawValue)?.rawValue;
-            if (value) {
-              resultRef.current(value);
-              return;
-            }
-          } catch {
-            // einzelne Erkennungsfehler ignorieren
-          }
-          timer = window.setTimeout(tick, 220);
-        };
-        void tick();
-      } catch (err) {
-        const name = err instanceof DOMException ? err.name : '';
-        setError(
-          name === 'NotAllowedError'
-            ? 'Der Zugriff auf die Kamera wurde nicht erlaubt. Bitte erlauben Sie ihn in den Browser-Einstellungen oder geben Sie den Code ein.'
-            : 'Die Kamera konnte nicht gestartet werden. Bitte geben Sie den Code ein.',
-        );
-      }
-    })();
-    return () => {
-      stopped = true;
-      window.clearTimeout(timer);
-      stream?.getTracks().forEach((t) => t.stop());
-    };
-  }, [open]);
-
-  return (
-    <Modal open={open} onClose={onClose} title="QR-Code scannen" description="Halten Sie den QR-Code aus der App des Kunden vor die Kamera." size="md">
-      {error ? (
-        <Notice tone="warning">{error}</Notice>
-      ) : (
-        <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-2xl bg-slate-900">
-          <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
-          <div className="pointer-events-none absolute inset-8 rounded-2xl border-4 border-white/80 shadow-[0_0_0_999px_rgba(15,23,42,0.45)]" aria-hidden />
-          {!ready ? <p className="absolute inset-x-0 bottom-4 text-center text-sm font-medium text-white/80">Kamera wird gestartet …</p> : null}
-        </div>
-      )}
-    </Modal>
-  );
-}

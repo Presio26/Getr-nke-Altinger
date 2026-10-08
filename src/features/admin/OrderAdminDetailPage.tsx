@@ -11,7 +11,7 @@ import { useNow } from '@/lib/hooks';
 import { Button, ButtonLink, Card, CardHeader, ErrorState, OrderStatusBadge, PageHeader, Skeleton } from '@/components/ui';
 import { useAdminDrivers, useAdminOrder, useAdminTours } from './ops/api';
 import { orderCrates, orderItemCount } from './ops/model';
-import { B2BTag, FulfillmentIcon } from './ops/components/OrderBits';
+import { B2BTag, FulfillmentIcon, SourceTag } from './ops/components/OrderBits';
 import { EmptiesList, OrderLinesList, OrderTotals } from './ops/components/OrderLines';
 import {
   CustomerCard,
@@ -101,7 +101,10 @@ export default function OrderAdminDetailPage() {
               <B2BTag type={order.customerType} />
             </span>
             <span aria-hidden>·</span>
-            <span title={formatDateTime(order.createdAt)}>eingegangen {formatRelative(order.createdAt, now)}</span>
+            <span title={formatDateTime(order.createdAt)}>
+              {order.source === 'phone' ? 'telefonisch erfasst' : order.source === 'subscription' ? 'aus Abo angelegt' : 'eingegangen'} {formatRelative(order.createdAt, now)}
+            </span>
+            <SourceTag source={order.source} />
           </span>
         }
         actions={

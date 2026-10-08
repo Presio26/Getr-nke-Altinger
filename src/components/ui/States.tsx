@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { AlertTriangle, LockKeyhole, RefreshCw, SearchX, WifiOff, type LucideIcon } from 'lucide-react';
 import { ApiError } from '@shared/api';
 import { cn } from '@/lib/cn';
@@ -100,8 +100,30 @@ export function LoadingScreen({ label = 'Einen Moment bitte …' }: LoadingScree
   );
 }
 
+// Solange irgendwo eine Seiten-Ladeanzeige steht, blenden Layouts den Footer aus (sonst springt er
+// beim Laden der Seite aus dem Bild → Layout-Shift/CLS).
+let activeLoaders = 0;
+const loaderListeners = new Set<() => void>();
+function changeLoaders(delta: number) {
+  activeLoaders = Math.max(0, activeLoaders + delta);
+  loaderListeners.forEach((l) => l());
+}
+function subscribeLoaders(cb: () => void) {
+  loaderListeners.add(cb);
+  return () => loaderListeners.delete(cb);
+}
+
+/** true, solange eine PageLoader-Ladeanzeige (Suspense, Zugriffsprüfung …) sichtbar ist */
+export function usePageLoading(): boolean {
+  return useSyncExternalStore(subscribeLoaders, () => activeLoaders > 0, () => false);
+}
+
 /** Ladeanzeige innerhalb eines Layouts (Seitenwechsel, Suspense) */
 export function PageLoader({ label = 'Wird geladen …', className }: { label?: string; className?: string }) {
+  useLayoutEffect(() => {
+    changeLoaders(1);
+    return () => changeLoaders(-1);
+  }, []);
   return (
     <div className={cn('flex min-h-[40vh] items-center justify-center', className)} aria-busy>
       <div className="flex items-center gap-3 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-500 shadow-card">

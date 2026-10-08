@@ -32,7 +32,9 @@ function DemoAccessGrid({ users, onPick, pending }: { users: DemoUser[]; onPick:
           <Avatar name={u.name} color={ROLE_COLOR[u.role]} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[15px] font-semibold text-slate-900">{u.name}</span>
-            <span className="mt-0.5 block truncate text-[13px] text-slate-500">{u.description}</span>
+            <span className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-slate-500" title={u.description}>
+              {u.description}
+            </span>
             <Badge tone={ROLE_TONE[u.role]} className="mt-1.5">
               {ROLE_LABEL[u.role]}
             </Badge>

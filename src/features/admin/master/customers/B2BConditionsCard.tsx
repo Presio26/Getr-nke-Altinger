@@ -40,7 +40,7 @@ function toDraft(b: BusinessInfo): Draft {
 }
 
 /** B2B-Konditionen bearbeiten (Preisgruppe, Rabatt, Zahlungsziel, Kreditlimit, Rechnung, frei Haus, Status) */
-export function B2BConditionsCard({ customer, openAmount }: { customer: Customer; openAmount: number }) {
+export function B2BConditionsCard({ customer, openAmount, unbilledAmount = 0 }: { customer: Customer; openAmount: number; unbilledAmount?: number }) {
   const b = customer.b2b!;
   const serverDraft = useMemo(() => toDraft(b), [b]);
   const [draft, setDraft] = useState<Draft>(serverDraft);
@@ -107,7 +107,8 @@ export function B2BConditionsCard({ customer, openAmount }: { customer: Customer
     });
   };
 
-  const usage = b.creditLimit > 0 ? Math.min(100, (openAmount / b.creditLimit) * 100) : 0;
+  const used = openAmount + unbilledAmount;
+  const usage = b.creditLimit > 0 ? Math.min(100, (used / b.creditLimit) * 100) : 0;
 
   return (
     <FormSection
@@ -157,18 +158,21 @@ export function B2BConditionsCard({ customer, openAmount }: { customer: Customer
 
         {b.creditLimit > 0 ? (
           <div>
-            <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-              <span className="font-medium text-slate-700">Auslastung Kreditlimit</span>
+            <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm">
+              <span className="font-medium text-slate-700">Kreditrahmen-Auslastung</span>
               <span className="tabular-nums text-slate-600">
-                {formatEuro(openAmount)} von {formatEuro(b.creditLimit)} ({formatPercent(usage)})
+                {formatEuro(used)} von {formatEuro(b.creditLimit)} ({formatPercent(usage)})
               </span>
             </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(usage)} aria-label="Auslastung Kreditlimit">
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(usage)} aria-label="Kreditrahmen-Auslastung">
               <div
                 className={cn('h-full rounded-full transition-[width]', usage >= 90 ? 'bg-red-500' : usage >= 70 ? 'bg-amber-400' : 'bg-emerald-500')}
-                style={{ width: `${Math.max(usage, openAmount > 0 ? 2 : 0)}%` }}
+                style={{ width: `${Math.max(usage, used > 0 ? 2 : 0)}%` }}
               />
             </div>
+            <p className="mt-1.5 text-xs text-slate-500">
+              Offene Posten {formatEuro(openAmount)} + noch nicht abgerechnete Lieferungen {formatEuro(unbilledAmount)} – wie bei der Kreditprüfung neuer Bestellungen.
+            </p>
           </div>
         ) : null}
 

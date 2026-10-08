@@ -143,7 +143,7 @@ export function estimateItems(
     deposit += price.depositTotal;
     count += item.qty;
     const t = p.depositTypeId ? depositTypes.find((d) => d.id === p.depositTypeId) : undefined;
-    if (t?.returnable) returnable += item.qty;
+    if (t?.returnable && !t.loose) returnable += item.qty;
   }
   return { goods, deposit, showNet, count, returnable };
 }
@@ -176,7 +176,7 @@ export function depositSummary(balance: Record<string, number> | undefined, type
     lines,
     totalQty: lines.reduce((s, l) => s + l.qty, 0),
     totalValue: lines.reduce((s, l) => s + l.value, 0),
-    returnLines: lines.filter((l) => l.type.returnable).map((l) => ({ depositTypeId: l.type.id, qty: l.qty })),
+    returnLines: lines.filter((l) => l.type.returnable && !l.type.loose).map((l) => ({ depositTypeId: l.type.id, qty: l.qty })),
   };
 }
 
@@ -198,7 +198,7 @@ export function emptiesFlow(order: Order, types: DepositType[]): EmptiesFlow {
   for (const line of order.lines) {
     if (!line.depositTypeId) continue;
     const t = types.find((x) => x.id === line.depositTypeId);
-    if (t?.returnable) deliveredMap.set(t.id, (deliveredMap.get(t.id) ?? 0) + line.qty);
+    if (t?.returnable && !t.loose) deliveredMap.set(t.id, (deliveredMap.get(t.id) ?? 0) + line.qty);
   }
   const collected = order.proof?.emptiesCollected ?? order.emptiesReturn ?? [];
   const returnedMap = new Map<string, number>();
@@ -207,7 +207,9 @@ export function emptiesFlow(order: Order, types: DepositType[]): EmptiesFlow {
   const returned = [...returnedMap].map(([depositTypeId, qty]) => ({ depositTypeId, qty }));
   const deliveredQty = delivered.reduce((s, l) => s + l.qty, 0);
   const returnedQty = returned.reduce((s, l) => s + l.qty, 0);
-  return { order, delivered, returned, deliveredQty, returnedQty, delta: deliveredQty - returnedQty };
+  // lose Einzelflaschen laufen nicht über das Leergut-Konto
+  const returnedAccount = returned.reduce((s, l) => s + (types.find((t) => t.id === l.depositTypeId)?.loose ? 0 : l.qty), 0);
+  return { order, delivered, returned, deliveredQty, returnedQty, delta: deliveredQty - returnedAccount };
 }
 
 /** "2× Bierkasten (20er), 1× Wasserkasten Glas (12er)" */

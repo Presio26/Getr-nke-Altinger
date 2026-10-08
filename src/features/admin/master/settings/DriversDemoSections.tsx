@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Database, Pencil, Phone, Plus, RotateCcw, Server, Truck, Wifi } from 'lucide-react';
+import { BookOpen, CheckCheck, Database, Pencil, Phone, Plus, RotateCcw, Server, Truck, Wifi } from 'lucide-react';
 import type { Driver, DriverStatus, StoreSettings } from '@shared/types';
 import { DRIVER_STATUS_LABEL, formatDateTime } from '@shared/format';
 import { api } from '@/api/client';
-import { qk, useApiMutation, useBootstrap, useBootstrapActions } from '@/api/hooks';
-import { Badge, Button, ButtonLink, ConfirmModal, EmptyState, ErrorState, IconButton, Input, KeyValue, Modal, Select, Skeleton, errorMessage, toast, type BadgeTone } from '@/components/ui';
+import { qk, useApiMutation, useBootstrap, useBootstrapActions, useSettings } from '@/api/hooks';
+import { Badge, Button, ButtonLink, ConfirmModal, EmptyState, ErrorState, IconButton, Input, KeyValue, Modal, Select, Skeleton, Switch, errorMessage, toast, type BadgeTone } from '@/components/ui';
 import { HEX_RE, parseIntInput, useAdminDrivers } from '../lib';
 import { ColorField, FormSection } from '../ui';
 
@@ -169,13 +169,33 @@ export function DriversSection() {
   );
 }
 
-/** Demo: Betriebsmodus anzeigen, Demo-Daten zurücksetzen */
-export function DemoSection({ onReset }: { onReset: (settings: StoreSettings) => void }) {
+/** Demo: Betriebsmodus anzeigen, automatische Bestätigung, Demo-Daten zurücksetzen */
+export function DemoSection({ onReset, onSettingsSaved }: { onReset: (settings: StoreSettings) => void; onSettingsSaved?: (settings: StoreSettings) => void }) {
   const bootstrap = useBootstrap();
+  const settings = useSettings();
   const { update } = useBootstrapActions();
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [savingAuto, setSavingAuto] = useState(false);
+
+  // sofort gespeichert (wie Fahrer) – unabhängig von ungespeicherten Änderungen in anderen Bereichen
+  const setAutoConfirm = async (value: boolean) => {
+    setSavingAuto(true);
+    try {
+      const saved = await api.adminSaveSettings({ ...settings, demoAutoConfirm: value });
+      update({ settings: saved });
+      onSettingsSaved?.(saved);
+      toast.success(value ? 'Neue Bestellungen werden automatisch bestätigt' : 'Der Markt bestätigt neue Bestellungen selbst', {
+        id: 'demo-auto-confirm',
+        description: value ? 'Gilt für Bestellungen, die ab jetzt eingehen (nach wenigen Sekunden).' : 'Neue Bestellungen bleiben „Eingegangen“, bis Sie sie bestätigen.',
+      });
+    } catch (err) {
+      toast.error(errorMessage(err), { id: 'demo-auto-confirm' });
+    } finally {
+      setSavingAuto(false);
+    }
+  };
 
   const reset = async () => {
     setBusy(true);
@@ -220,6 +240,20 @@ export function DemoSection({ onReset }: { onReset: (settings: StoreSettings) =>
             />
           </div>
         </div>
+      </FormSection>
+
+      <FormSection title="Bestellungen automatisch bestätigen" subtitle="Für unbeaufsichtigte Vorführungen – sofort gespeichert" icon={CheckCheck}>
+        <Switch
+          checked={!!settings.demoAutoConfirm}
+          onChange={(v) => void setAutoConfirm(v)}
+          disabled={savingAuto}
+          label="Neue Bestellungen automatisch bestätigen"
+          description={
+            settings.demoAutoConfirm
+              ? 'An: Neue Bestellungen werden nach wenigen Sekunden automatisch bestätigt (Verlauf „Automatisch bestätigt“). Telefonbestellungen sind immer sofort bestätigt.'
+              : 'Aus (empfohlen für die Vorführung): Neue Bestellungen bleiben „Eingegangen“, bis der Markt sie im Bestell-Board bestätigt.'
+          }
+        />
       </FormSection>
 
       <FormSection title="Demo-Daten zurücksetzen" subtitle="Für einen sauberen Start vor jeder Vorführung" icon={RotateCcw}>

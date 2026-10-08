@@ -151,6 +151,15 @@ export function createRemoteTransport(init: TransportInit): Transport {
       // Räume serverseitig neu zuordnen, ohne die Verbindung zu trennen
       if (socket.connected) socket.emit('auth', { token });
     },
+    reconnect() {
+      if (disposed) return;
+      if (socket.connected) verifyConnection();
+      else {
+        hooks.onStatus('connecting');
+        socket.disconnect();
+        socket.connect();
+      }
+    },
     dispose() {
       disposed = true;
       if (typeof window !== 'undefined') {

@@ -13,6 +13,7 @@ import type {
   FulfillmentType,
   Invoice,
   Order,
+  OrderSource,
   OrderStatus,
   PaymentMethod,
   Product,
@@ -24,9 +25,9 @@ import type {
 import { addDays, berlinDate, berlinParts, minutesOfDay, minutesToTime, timeToMinutes, weekdayOf } from '../../time';
 import { formatDate, formatEuro, formatTime } from '../../format';
 import { calculateQuote } from '../pricing';
-import { slotIdOf, templatesForDay } from '../slots';
+import { pickupHoldUntil, slotIdOf, templatesForDay } from '../slots';
 import { invoiceNumber, invoiceTotals } from '../invoices';
-import { chance, int, pick, sample, weighted, type Rng } from './prng';
+import { chance, int, mulberry32, pick, sample, weighted, type Rng } from './prng';
 import { seedRoute, type SeedTourKey } from './routes';
 import { ROUTE_KEYS } from './people';
 import { randomPickupCode } from '../util';
@@ -69,6 +70,8 @@ interface Spec {
   status: OrderStatus;
   /** Status-Zeitstempel aus dem Zeitfenster (Vergangenheit) statt gleichmäßig bis jetzt */
   historic: boolean;
+  /** Herkunft; ohne Angabe: Abo-Bestellungen 'subscription', sonst 'app' */
+  source?: OrderSource;
   empties?: EmptiesLine[];
   /** Leergut automatisch aus dem laufenden Leergut-Konto */
   autoEmpties?: 'all' | 'random' | 'none';
@@ -142,6 +145,18 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
   const balances = new Map<string, Record<string, number>>();
   const points = new Map<string, number>();
   const specs: Spec[] = [];
+
+  /** eigener Zufall für die Bestellherkunft – verändert die übrigen Demo-Daten nicht */
+  const sourceRng = mulberry32(4711);
+  /**
+   * Herkunft historischer Bestellungen: früher deutlich mehr Telefon, zuletzt überwiegend App
+   * (zeigt die „Entlastung“ in der Statistik). Gastronomie bestellt traditionell öfter telefonisch.
+   */
+  const historicSource = (daysAgo: number, b2b: boolean): OrderSource => {
+    const age = Math.max(0, Math.min(1, daysAgo / 30));
+    const p = b2b ? 0.22 + 0.42 * age : 0.1 + 0.38 * age;
+    return sourceRng() < p ? 'phone' : 'app';
+  };
 
   const b2cPool = customers.filter((c) => c.type === 'b2c' && c.id !== 'c-anna');
   const b2bPool = customers.filter((c) => c.type === 'b2b' && c.b2b?.status === 'active' && c.id !== 'c-gasthaus' && c.id !== 'c-nordbyte');
@@ -227,9 +242,12 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
         createdAt: orderedAt(day, t.start, fulfillment),
         status: cancelled ? 'cancelled' : fulfillment === 'delivery' ? 'delivered' : 'picked_up',
         historic: true,
+        source: historicSource(d, isB2B),
         autoEmpties: isB2B ? 'all' : 'random',
       };
       if (cancelled && (spec.payment === 'paypal' || spec.payment === 'card')) spec.payment = 'ec';
+      // am Telefon gibt es keine Online-Zahlung
+      if (spec.source === 'phone' && (spec.payment === 'paypal' || spec.payment === 'card')) spec.payment = 'cash';
       if (!isB2B && fulfillment === 'delivery' && chance(rng, 0.08)) spec.carry = true;
       if (!isB2B && chance(rng, 0.07)) spec.coupon = pick(rng, ['GARCHING', 'WILLKOMMEN10']);
       if (isB2B && customer.b2b?.costCenters.length && chance(rng, 0.6)) spec.costCenter = pick(rng, customer.b2b.costCenters);
@@ -353,8 +371,10 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
     });
   }
   const gasthausThursdays = Array.from({ length: 6 }, (_, k) => addDays(lastWeekday(4), -14 * k - 7));
-  for (const day of gasthausThursdays) {
+  for (const [k, day] of gasthausThursdays.entries()) {
     specs.push({
+      // früher per Telefon, seit ein paar Wochen über das Geschäftskunden-Portal
+      source: k >= 2 ? 'phone' : 'app',
       customerId: 'c-gasthaus',
       items: [
         ['paulaner-weissbier', int(rng, 2, 4)],
@@ -423,6 +443,7 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
       autoEmpties: 'none',
       costCenter: 'Events',
       reference: 'Team-Event Herbst',
+      source: 'phone',
       notes: 'Bitte in die Dachterrassen-Küche (3. OG) liefern',
     });
   }
@@ -451,7 +472,18 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
     key: SeedTourKey;
     driverId: string;
     plannedStart: string;
-    stops: { customerId: string; items: Item[]; payment: PaymentMethod; status: OrderStatus; carry?: boolean; notes?: string; costCenter?: string; reference?: string; empties?: EmptiesLine[] }[];
+    stops: {
+      customerId: string;
+      items: Item[];
+      payment: PaymentMethod;
+      status: OrderStatus;
+      carry?: boolean;
+      notes?: string;
+      costCenter?: string;
+      reference?: string;
+      empties?: EmptiesLine[];
+      source?: OrderSource;
+    }[];
   }
   const tourPlans: TourPlan[] = [
     {
@@ -464,7 +496,8 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
         {
           customerId: 'c-anna',
           items: [['augustiner-hell', 2], ['adelholzener-classic-075', 1], ['paulaner-spezi', 1]],
-          payment: 'paypal',
+          // Barzahlung: am Stopp lassen sich Kassieren, Leergut-Verrechnung und Unterschrift zeigen
+          payment: 'cash',
           status: 'ready',
           notes: 'Bitte im Hof abstellen, Leergut steht neben der Garage.',
           empties: [
@@ -512,7 +545,7 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
       plannedStart: hhmm(p3),
       stops: [
         { customerId: 'c-schneider', items: [['augustiner-hell', 3], ['adelholzener-classic-pet', 2], ['fanta-pet', 1], ['coca-cola-pet', 1]], payment: 'ec', status: 'confirmed', notes: 'Kindergeburtstag – bitte bis 17 Uhr' },
-        { customerId: 'c-klein', items: [['hacker-pschorr-hell', 1], ['kondrauer-classic', 1]], payment: 'cash', status: 'confirmed' },
+        { customerId: 'c-klein', items: [['hacker-pschorr-hell', 1], ['kondrauer-classic', 1]], payment: 'cash', status: 'confirmed', source: 'phone' },
         {
           customerId: 'c-fchochbrueck',
           items: [['paulaner-hell', 8], ['paulaner-spezi', 4], ['altmuehltaler-classic-07', 4], ['eiswuerfel-2kg', 5]],
@@ -520,6 +553,7 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
           status: 'confirmed',
           costCenter: 'Vereinsheim',
           reference: 'Heimspiel Samstag',
+          source: 'phone',
         },
         { customerId: 'c-pizzeria', items: [['augustiner-hell', 3], ['adelholzener-classic-075', 4], ['coca-cola-pet', 2], ['primitivo', 6]], payment: 'ec', status: 'confirmed' },
         { customerId: 'c-wimmer', items: [['tegernseer-hell', 2], ['st-leonhards-classic', 1], ['granini-multi', 1]], payment: 'paypal', status: 'confirmed' },
@@ -545,6 +579,7 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
         ...(s.notes ? { notes: s.notes } : {}),
         ...(s.costCenter ? { costCenter: s.costCenter } : {}),
         ...(s.reference ? { reference: s.reference } : {}),
+        ...(s.source ? { source: s.source } : {}),
         driverId: plan.driverId,
         key: `${plan.id}-${i}`,
         tag: 'today-tour',
@@ -559,13 +594,18 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
   const tWin = templatesForDay(settings, 'delivery', tomorrow);
   const early = tWin[Math.min(1, tWin.length - 1)];
   const late = tWin[Math.min(3, tWin.length - 1)];
-  const tomorrowSpecs: { customerId: string; items: Item[]; slot: typeof early; status: OrderStatus; payment: PaymentMethod; notes?: string }[] = [
-    { customerId: 'c-fischer', items: [['andechser-hell', 2], ['adelholzener-classic-075', 1]], slot: early, status: 'confirmed', payment: 'ec' },
+  const tomorrowSpecs: { customerId: string; items: Item[]; slot: typeof early; status: OrderStatus; payment: PaymentMethod; notes?: string; source?: OrderSource }[] = [
+    { customerId: 'c-fischer', items: [['andechser-hell', 2], ['adelholzener-classic-075', 1]], slot: early, status: 'confirmed', payment: 'ec', source: 'phone' },
     { customerId: 'c-koch', items: [['paulaner-weissbier', 1], ['adelholzener-classic-pet', 2]], slot: early, status: 'pending', payment: 'cash' },
     { customerId: 'c-wolf', items: [['augustiner-edelstoff', 2], ['coca-cola-pet', 1]], slot: early, status: 'confirmed', payment: 'paypal' },
     { customerId: 'c-richter', items: [['loewenbraeu-original', 2], ['club-mate', 1]], slot: late, status: 'pending', payment: 'ec', notes: 'Bitte vorher kurz anrufen.' },
     { customerId: 'c-lehmann', items: [['weihenstephaner-hefe', 2], ['adelholzener-classic-075', 1], ['granini-orange', 1]], slot: late, status: 'confirmed', payment: 'card' },
   ];
+  /** noch unbestätigte Bestellungen sind erst vor wenigen Minuten eingegangen (der Markt bestätigt zügig) */
+  const freshCreatedAt = (minutesAgo: number) => nowMs - minutesAgo * MIN;
+  const pendingAges = [18, 7, 12];
+  let pendingIdx = 0;
+  const createdFor = (status: OrderStatus, older: () => number) => (status === 'pending' ? freshCreatedAt(pendingAges[pendingIdx++ % pendingAges.length]) : older());
   tomorrowSpecs.forEach((s, i) => {
     specs.push({
       customerId: s.customerId,
@@ -575,11 +615,12 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
       start: s.slot.start,
       end: s.slot.end,
       payment: s.payment,
-      createdAt: openCreatedAt(0.6 + i * 0.4, 6 + i),
+      createdAt: createdFor(s.status, () => openCreatedAt(0.6 + i * 0.4, 6 + i)),
       status: s.status,
       historic: false,
       autoEmpties: 'all',
       ...(s.notes ? { notes: s.notes } : {}),
+      ...(s.source ? { source: s.source } : {}),
       key: `tomorrow-${s.customerId}`,
       tag: 'tomorrow',
     });
@@ -613,7 +654,7 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
       start,
       end,
       payment: p.payment,
-      createdAt: openCreatedAt(0.8 + i * 0.5, 4 + i),
+      createdAt: createdFor(p.status, () => openCreatedAt(0.8 + i * 0.5, 4 + i)),
       status: p.status,
       historic: false,
       autoEmpties: 'random',
@@ -676,6 +717,7 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
     const startMs = at(spec.date, spec.start);
     const endMs = at(spec.date, spec.end);
     const chain = statusChain(spec.fulfillment, spec.status, rng);
+    const source: OrderSource = spec.source ?? (spec.subscriptionId ? 'subscription' : 'app');
     const driverId = spec.fulfillment === 'delivery' ? spec.driverId ?? (spec.historic && spec.status !== 'cancelled' ? pick(rng, driverIds) : undefined) : undefined;
     const driverFirst = driverId ? (driverName.get(driverId) ?? '').split(' ')[0] : '';
     const times: number[] = [];
@@ -686,12 +728,16 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
       else if (!spec.historic) {
         const remaining = chain.length - i;
         const span = Math.max(2 * MIN, nowMs - 2 * MIN - prev);
-        t = st === 'confirmed' ? prev + Math.min(int(rng, 4, 20) * MIN, span / 2) : prev + span / (remaining + 1);
+        const wait = st === 'confirmed' ? Math.min(int(rng, 4, 20) * MIN, span / 2) : 0;
+        t = st === 'confirmed' ? prev + (source === 'phone' ? Math.min(MIN, span / 2) : wait) : prev + span / (remaining + 1);
       } else {
         switch (st) {
-          case 'confirmed':
-            t = prev + int(rng, 4, 25) * MIN;
+          case 'confirmed': {
+            const wait = int(rng, 4, 25);
+            // am Telefon aufgenommen = sofort bestätigt
+            t = prev + (source === 'phone' ? 1 : wait) * MIN;
             break;
+          }
           case 'picking':
             t = startMs - (spec.fulfillment === 'delivery' ? int(rng, 80, 95) : int(rng, 25, 38)) * MIN;
             break;
@@ -719,7 +765,8 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
       prev = t;
     });
     const by = (st: OrderStatus): string => {
-      if (st === 'pending') return spec.subscriptionId ? 'Abo' : 'Kunde';
+      if (st === 'pending') return source === 'subscription' ? 'Abo' : source === 'phone' ? 'Markt (Telefon)' : 'Kunde';
+      if (st === 'confirmed' && source === 'phone') return 'Markt (Telefon)';
       if (st === 'out_for_delivery' || st === 'delivered') return driverFirst ? `Fahrer ${driverFirst}` : 'Markt';
       if (st === 'cancelled') return 'Kunde';
       return 'Markt';
@@ -728,12 +775,14 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
       const c: StatusChange = { status: st, at: new Date(times[i]).toISOString(), by: by(st) };
       if (st === 'cancelled') c.note = pick(rng, CANCEL_REASONS);
       if (st === 'confirmed' && spec.subscriptionId) c.note = 'Abo automatisch eingeplant';
+      if (st === 'confirmed' && source === 'phone') c.note = 'Telefonisch aufgenommen';
       return c;
     });
     const address = customer.addresses.find((a) => a.id === customer.defaultAddressId);
     const last = history[history.length - 1];
     const order: Order = {
       id: '',
+      source,
       number: '',
       customerId: customer.id,
       customerType: customer.type,
@@ -763,7 +812,7 @@ export function buildSeedOrders(input: SeedInput): SeedOrdersResult {
     if (driverId && spec.status !== 'cancelled' && (spec.historic || spec.driverId)) order.driverId = driverId;
     if (spec.fulfillment === 'pickup') {
       order.pickupCode = randomPickupCode(rng);
-      order.holdUntil = new Date(endMs + settings.pickupHoldHours * HOUR).toISOString();
+      order.holdUntil = pickupHoldUntil(settings, spec.date, spec.end);
     }
     const done = spec.status === 'delivered' || spec.status === 'picked_up';
     if (done) {

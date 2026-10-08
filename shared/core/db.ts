@@ -19,7 +19,8 @@ import type {
   User,
 } from '../types';
 
-export const SCHEMA_VERSION = 1;
+/** 2: MwSt.-Aufschlüsselung, Bestellherkunft, lose Pfandflaschen – ältere Datenstände werden neu erzeugt */
+export const SCHEMA_VERSION = 2;
 
 export interface StoredUser extends User {
   /** Klartext ist für die Demo ausreichend – Produktion: Hash (bcrypt/argon2) */

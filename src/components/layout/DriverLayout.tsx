@@ -1,12 +1,16 @@
 import { Suspense, useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { Download, LogOut } from 'lucide-react';
 import { DRIVER_STATUS_LABEL } from '@shared/format';
 import { useDriverToday } from '@/api/hooks';
 import { useSession } from '@/stores/session';
 import { cn } from '@/lib/cn';
 import { Logo } from '@/components/brand/Logo';
 import { ConfirmModal, IconButton, PageLoader, toast } from '@/components/ui';
+import { useDemoTripleTap } from '@/components/demo/useDemoTripleTap';
+import { InstallHelpModal, useInstallAction } from '@/components/pwa/InstallHelp';
+import { useFallbackDocumentTitle } from '@/lib/hooks';
+import { ConnectionBanner } from './ConnectionBanner';
 import { ConnectionIndicator, GpsIndicator } from './StatusIndicators';
 import { DriverGpsBridge } from '@/features/driver/components/DriverGpsBridge';
 
@@ -27,6 +31,11 @@ export function DriverLayout() {
   const [busy, setBusy] = useState(false);
   const driver = data?.driver;
   const name = driver?.name ?? user?.name ?? 'Fahrer';
+  const onLogoClick = useDemoTripleTap();
+  const install = useInstallAction();
+  // Installieren nur dezent in der Kopfzeile – und nie während einer aktiven Tour
+  const showInstall = install.available && driver?.status !== 'on_tour';
+  useFallbackDocumentTitle('Heute');
 
   const onLogout = async () => {
     setBusy(true);
@@ -40,8 +49,9 @@ export function DriverLayout() {
   return (
     <div className="flex min-h-dvh flex-col bg-slate-100">
       <header className="sticky top-0 z-30 bg-brand-900 pt-safe text-white shadow-md shadow-brand-950/20">
-        <div className="mx-auto flex h-16 max-w-3xl items-center gap-3 px-3 sm:px-4 lg:max-w-6xl">
-          <Link to="/fahrer" aria-label="Fahrer-Startseite" className="shrink-0 rounded-xl">
+        <ConnectionBanner />
+        <div className="mx-auto flex h-16 max-w-3xl items-center gap-2 px-3 sm:gap-3 sm:px-4 lg:max-w-6xl">
+          <Link to="/fahrer" aria-label="Fahrer-Startseite" onClick={onLogoClick} className="shrink-0 rounded-xl">
             <Logo variant="mark" className="h-10" />
           </Link>
           <div className="min-w-0 flex-1">
@@ -60,6 +70,14 @@ export function DriverLayout() {
           </div>
           <GpsIndicator tone="dark" />
           <ConnectionIndicator tone="dark" showLabel={false} />
+          {showInstall ? (
+            <IconButton
+              icon={Download}
+              label="Als App installieren"
+              onClick={() => void install.run()}
+              className="text-white/80 hover:bg-white/10 hover:text-white active:bg-white/15"
+            />
+          ) : null}
           <IconButton
             icon={LogOut}
             label="Abmelden"
@@ -70,7 +88,8 @@ export function DriverLayout() {
       </header>
       {/* GPS-Teilen während aktiver Tour (läuft auf allen Fahrer-Seiten weiter) + Hinweis bei fehlender Freigabe */}
       <DriverGpsBridge />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-safe-4 pt-4 lg:max-w-6xl lg:px-6 lg:pt-6">
+      {/* unten Platz für Safe-Area bzw. eine feste Aktionsleiste (StickyActionBar, --sticky-bar-h) */}
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-[calc(max(var(--sticky-bar-h),env(safe-area-inset-bottom))+1rem)] pt-4 lg:max-w-6xl lg:px-6 lg:pt-6">
         <Suspense fallback={<PageLoader />}>
           <Outlet />
         </Suspense>
@@ -84,6 +103,7 @@ export function DriverLayout() {
         message="Laufende Touren bleiben erhalten. Die GPS-Übertragung endet, bis Sie sich wieder anmelden."
         confirmLabel="Abmelden"
       />
+      <InstallHelpModal open={install.helpOpen} onClose={install.closeHelp} />
     </div>
   );
 }

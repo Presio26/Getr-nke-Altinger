@@ -21,7 +21,7 @@ export { Tabs, SegmentedControl } from './Tabs';
 export type { TabsProps, TabItem, SegmentedControlProps } from './Tabs';
 export { Spinner, Skeleton } from './Spinner';
 export type { SpinnerProps, SkeletonProps } from './Spinner';
-export { EmptyState, ErrorState, LoadingScreen, PageLoader, errorMessage } from './States';
+export { EmptyState, ErrorState, LoadingScreen, PageLoader, errorMessage, usePageLoading } from './States';
 export type { EmptyStateProps, ErrorStateProps, LoadingScreenProps } from './States';
 export { PageHeader, Section, Divider } from './Layout';
 export type { PageHeaderProps, SectionProps, DividerProps } from './Layout';

@@ -10,11 +10,16 @@ import { promptInstall, useInstallState } from './installState';
 const SNOOZE_MS = 14 * 24 * 60 * 60 * 1000;
 const SHOW_DELAY_MS = 8000;
 
+/** Seiten, auf denen der schwebende Hinweis nie erscheint (Hauptaktionen unten, Formulare) */
+const HIDDEN_PREFIXES = ['/login', '/registrieren', '/geschaeftskunde', '/kasse', '/warenkorb', '/bestellung/', '/business/schnellbestellung'];
+
 /**
- * Installationshinweis:
+ * Installationshinweis (nur im Shop):
  *  - Chrome/Edge/Android: eigener Knopf, der den Browser-Dialog (beforeinstallprompt) öffnet
  *  - iPhone/iPad (Safari): Anleitung "Teilen → Zum Home-Bildschirm"
- * Erscheint verzögert und nach "Später" erst wieder in 14 Tagen.
+ * Erscheint verzögert und nach "Später" erst wieder in 14 Tagen. In Fahrer-App und Markt-Dashboard nie
+ * schwebend über Hauptknöpfen – dort gibt es den dezenten Eintrag in der Kopfzeile bzw. im Kontomenü.
+ * Schwebt über Tab-Leiste und fester Aktionsleiste (CSS-Variablen), verdeckt also keine Haupt-Buttons.
  */
 export function InstallPrompt() {
   const { canPrompt, iosManual, standalone } = useInstallState();
@@ -30,18 +35,16 @@ export function InstallPrompt() {
   }, []);
 
   const snoozed = dismissedAt !== null && Date.now() - dismissedAt < SNOOZE_MS;
-  const hiddenRoute = pathname.startsWith('/login') || pathname.startsWith('/kasse') || pathname.startsWith('/fahrer/stopp');
+  const teamArea = pathname === '/admin' || pathname.startsWith('/admin/') || pathname === '/fahrer' || pathname.startsWith('/fahrer/');
+  const hiddenRoute = teamArea || HIDDEN_PREFIXES.some((p) => pathname.startsWith(p));
   if (standalone || snoozed || !ready || demoOpen || hiddenRoute || (!canPrompt && !iosManual)) return null;
-
-  const shop = !pathname.startsWith('/admin') && !pathname.startsWith('/fahrer');
 
   return (
     <div
       role="dialog"
       aria-label="App installieren"
       className={cn(
-        'no-print fixed inset-x-3 z-40 mx-auto max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-pop animate-pop-in sm:inset-x-auto sm:right-6 sm:w-96',
-        shop ? 'bottom-tabbar lg:bottom-6' : 'bottom-safe-4',
+        'no-print fixed inset-x-3 z-40 mx-auto max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-pop animate-pop-in bottom-floating sm:inset-x-auto sm:right-6 sm:w-96 sm:bottom-floating-lg',
       )}
     >
       <div className="flex items-start gap-3">
@@ -61,7 +64,7 @@ export function InstallPrompt() {
           type="button"
           onClick={dismiss}
           aria-label="Hinweis schließen"
-          className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          className="-mr-1.5 -mt-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
         >
           <X size={18} aria-hidden />
         </button>

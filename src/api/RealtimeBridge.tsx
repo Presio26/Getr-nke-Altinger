@@ -15,6 +15,7 @@ import { realtime } from '@/api/client';
 import { qk, useBootstrapActions } from '@/api/hooks';
 import { usePositions } from '@/stores/positions';
 import { useSession } from '@/stores/session';
+import { useCart } from '@/stores/cart';
 import { toast } from '@/components/ui/Toast';
 import { setNotificationNavigator, showNotification } from '@/lib/notifications';
 
@@ -24,6 +25,16 @@ function isForUser(n: AppNotification, user: User | null): boolean {
   if (n.recipient === 'admin') return user.role === 'admin';
   if (n.recipient === 'drivers') return user.role === 'driver';
   return false;
+}
+
+/**
+ * Gemeinsame Toast-ID je Bestellung: Kurz hintereinander eintreffende Status-Hinweise derselben Bestellung
+ * (z. B. „wird zusammengestellt“ → „liegt bereit“ → „Danke für Ihren Einkauf“) ersetzen sich statt zu stapeln.
+ */
+function notificationToastId(n: Pick<AppNotification, 'id' | 'link' | 'kind'>): string {
+  const m = n.link?.match(/^\/(?:bestellung|admin\/bestellungen|fahrer\/stopp)\/([^/?#]+)/);
+  if (m && (n.kind === 'order' || n.kind === 'delivery')) return `order-${m[1]}`;
+  return `n-${n.id}`;
 }
 
 function upsertProduct(qc: QueryClient, product: Product) {
@@ -115,7 +126,7 @@ export function RealtimeBridge() {
           const user = useSession.getState().user;
           const n = event.notification;
           if (isForUser(n, user)) {
-            toast.info(n.title, { description: n.body, href: n.link, id: `n-${n.id}` });
+            toast.info(n.title, { description: n.body, href: n.link, id: notificationToastId(n) });
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
               void showNotification(n.title, { body: n.body, link: n.link, tag: n.id });
             }
@@ -138,14 +149,24 @@ export function RealtimeBridge() {
           void qc.invalidateQueries({ queryKey: qk.admin });
           break;
 
-        case 'data.reset':
+        case 'data.reset': {
           usePositions.getState().clear();
+          // Warenkorb komplett leeren (Artikel, Leergut, Gutschein, Festdatum, Kommission, Zeitfenster, Adresse)
+          const cart = useCart.getState();
+          const hadCart = cart.items.length > 0 || cart.emptiesReturn.length > 0 || !!cart.couponCode || !!cart.eventDate || cart.commission;
+          cart.reset();
           void (async () => {
             await Promise.allSettled([actions.current.reload(), useSession.getState().refresh()]);
             await qc.invalidateQueries();
-            toast.info('Demo-Daten wurden zurückgesetzt', { id: 'data-reset', description: 'Alle Ansichten zeigen wieder den Ausgangsstand.' });
+            toast.info('Demo-Daten wurden zurückgesetzt', {
+              id: 'data-reset',
+              description: hadCart
+                ? 'Alle Ansichten zeigen wieder den Ausgangsstand – Ihr Warenkorb wurde geleert.'
+                : 'Alle Ansichten zeigen wieder den Ausgangsstand.',
+            });
           })();
           break;
+        }
       }
     };
     return realtime.subscribe(handle);
@@ -161,13 +182,17 @@ export function RealtimeBridge() {
     void actions.current.reload().catch(() => undefined);
   }, [role]);
 
-  // Nach Verbindungsabbruch: verpasste Änderungen nachladen
+  // Nach Verbindungsabbruch: verpasste Änderungen nachladen (Grunddaten, Anmeldung, alle Ansichten)
   useEffect(() => {
-    let wasOffline = false;
+    let wasOffline = realtime.status() === 'offline';
     return realtime.onStatus((status) => {
-      if (status === 'offline' || status === 'connecting') wasOffline = true;
+      if (status === 'offline') wasOffline = true;
       if (status === 'online' && wasOffline) {
         wasOffline = false;
+        void actions.current.reload().catch(() => undefined);
+        const session = useSession.getState();
+        // war der Server beim Start nicht erreichbar, ist die Anmeldung evtl. noch nicht geprüft
+        if (session.status !== 'authenticated' && session.token) void session.refresh().catch(() => undefined);
         void qc.invalidateQueries();
       }
     });

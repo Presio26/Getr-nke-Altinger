@@ -2,8 +2,8 @@
  * Kleine Bausteine rund um Bestellungen (Lieferart-Symbol, B2B-Kennzeichen, Gebinde, Auslastung).
  */
 import type { ReactNode } from 'react';
-import { Building2, Package, ShoppingBag, Truck } from 'lucide-react';
-import type { CustomerType, FulfillmentType } from '@shared/types';
+import { Building2, Package, Phone, ShoppingBag, Truck } from 'lucide-react';
+import type { CustomerType, FulfillmentType, OrderSource } from '@shared/types';
 import { cn } from '@/lib/cn';
 import { loadPercent } from '../model';
 
@@ -39,6 +39,54 @@ export function B2BTag({ type, className }: { type: CustomerType; className?: st
     >
       <Building2 size={10} aria-hidden />
       B2B
+    </span>
+  );
+}
+
+/**
+ * Platzsparendes B2B-Kennzeichen als kleines Symbol – fließt im Text mit (z. B. nach einem zweizeiligen Kundennamen).
+ */
+export function B2BIcon({ type, className }: { type: CustomerType; className?: string }) {
+  if (type !== 'b2b') return null;
+  return (
+    <span
+      title="Geschäftskunde"
+      className={cn('ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-brand-700 align-[-2px] text-white', className)}
+    >
+      <Building2 size={10} aria-hidden />
+      <span className="sr-only">(Geschäftskunde)</span>
+    </span>
+  );
+}
+
+/** Platzsparendes Telefon-Symbol (fließt im Text mit, z. B. nach dem Kundennamen auf Board-Karten) */
+export function SourceIcon({ source, className }: { source?: OrderSource; className?: string }) {
+  if (source !== 'phone') return null;
+  return (
+    <span
+      title="Telefonisch vom Markt erfasst"
+      className={cn('ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-violet-100 align-[-2px] text-violet-700 ring-1 ring-inset ring-violet-200', className)}
+    >
+      <Phone size={10} aria-hidden />
+      <span className="sr-only">(Telefonbestellung)</span>
+    </span>
+  );
+}
+
+/** Kennzeichen für telefonisch vom Markt erfasste Bestellungen */
+export function SourceTag({ source, compact = false, className }: { source?: OrderSource; compact?: boolean; className?: string }) {
+  if (source !== 'phone') return null;
+  return (
+    <span
+      title="Telefonisch vom Markt erfasst"
+      className={cn(
+        'inline-flex shrink-0 items-center gap-0.5 rounded-md bg-violet-100 px-1.5 py-px text-[10px] font-bold uppercase leading-4 tracking-wide text-violet-800 ring-1 ring-inset ring-violet-200',
+        compact && 'px-1',
+        className,
+      )}
+    >
+      <Phone size={10} aria-hidden />
+      {compact ? <span className="sr-only">Telefonbestellung</span> : 'Tel.'}
     </span>
   );
 }

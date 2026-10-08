@@ -8,12 +8,17 @@
  *  - Pfand je Gebinde aus DepositType, Leergut-Rückgabe als Gutschrift (je Art höchstens
  *    Leergut-Konto + bestellte Gebinde, sofern das Konto bekannt ist).
  *  - Liefergebühr nach Liefergebiet (PLZ), Mindestbestellwert, Tragservice, Gutschein.
- *  - MwSt. anteilig je Steuersatz aus Warenwert − Rabatt + Gebühren; Pfand mit dem Satz des Artikels,
- *    die Leergut-Gutschrift mindert das Entgelt (19 %).
+ *  - MwSt.-Aufschlüsselung je Satz (computeTotals): Warenwert − Rabatt + Gebühren (anteilig je Satz),
+ *    Pfand mit dem Satz des Artikels, die Leergut-Gutschrift mindert das Entgelt (19 %).
+ *    Privatkunden: Brutto je Satz, MwSt. herausgerechnet. Geschäftskunden: Netto je Satz,
+ *    MwSt. = round(Netto × Satz), Brutto = Netto + MwSt. – Σ Netto + Σ MwSt. = Endbetrag, immer.
  */
 import type {
   Address,
   CheckoutInput,
+  Totals,
+  TotalsNetParts,
+  VatBreakdownLine,
   Coupon,
   Customer,
   CustomerType,
@@ -43,6 +48,8 @@ export const B2B_EXTRA_PAYMENT_METHODS: PaymentMethod[] = ['invoice', 'sepa'];
 export const DEPOSIT_REFUND_VAT_RATE = 19;
 /** Höchstmenge je Position bzw. je Leergut-Art */
 const MAX_QTY = 999;
+/** Höchstmenge loser Einzelflaschen je Art und Bestellung (kein Leergut-Konto) */
+export const MAX_LOOSE_QTY = 500;
 
 /** In einem Bruttobetrag enthaltene MwSt. (exakt, ungerundet) */
 export const vatPart = (gross: number, rate: number) => (gross * rate) / (100 + rate);
@@ -198,6 +205,161 @@ export function toOrderLine(p: ProductPrice): OrderLine {
   if (p.isRental) line.isRental = true;
   if (p.priceNote) line.priceNote = p.priceNote;
   return line;
+}
+
+// ───────────────────────────── Summen & MwSt.-Aufschlüsselung ─────────────────────────────
+
+/** kaufmännisch runden, symmetrisch um 0 (−0,5 → −1) */
+export function roundHalfAway(v: number): number {
+  const r = Math.round(Math.abs(v) + 1e-9) * Math.sign(v);
+  return r === 0 ? 0 : r;
+}
+
+/**
+ * Ganzzahligen Betrag proportional zu Gewichten aufteilen (größter Rest) – Summe exakt `amount`.
+ * Ohne positive Gewichte geht alles an `fallbackIndex`.
+ */
+export function allocateCents(amount: number, weights: readonly number[], fallbackIndex = 0): number[] {
+  const out = weights.map(() => 0);
+  if (!weights.length || !amount) return out;
+  const sum = weights.reduce((s, w) => s + Math.max(0, w), 0);
+  if (sum <= 0) {
+    out[Math.min(Math.max(0, fallbackIndex), out.length - 1)] = amount;
+    return out;
+  }
+  const sign = amount < 0 ? -1 : 1;
+  const abs = Math.abs(amount);
+  const exact = weights.map((w) => (abs * Math.max(0, w)) / sum);
+  const base = exact.map((x) => Math.floor(x));
+  let rest = abs - base.reduce((s, x) => s + x, 0);
+  const order = exact.map((x, i) => ({ i, frac: x - Math.floor(x) })).sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; rest > 0 && k < order.length; k++, rest--) base[order[k].i] += 1;
+  return base.map((x) => (x * sign === 0 ? 0 : x * sign));
+}
+
+export interface TotalsInput {
+  /** 'b2b' → Netto-Basis (Geschäftskunden), sonst Brutto-Basis */
+  customerType: CustomerType;
+  lines: readonly Pick<OrderLine, 'vatRate' | 'lineNet' | 'lineGross' | 'depositTotal'>[];
+  /** Gutschein-Rabatt brutto (positiv) */
+  discount: number;
+  /** Leergut-Gutschrift brutto (positiv) */
+  depositRefund: number;
+  deliveryFee: number;
+  carryFee: number;
+}
+
+/**
+ * Summen einer Bestellung inkl. MwSt.-Aufschlüsselung je Satz – einzige Stelle für die Steuerberechnung
+ * (Kasse, Bestellung, nachträgliche Leergut-Korrektur, Rechnung).
+ *
+ *  - Rabatt und Gebühren werden anteilig nach Warenwert brutto auf die Sätze verteilt (Nebenleistung),
+ *    Pfand trägt den Satz des Artikels, die Leergut-Gutschrift mindert das Entgelt zu 19 %.
+ *  - Privatkunden (Brutto-Basis): Brutto je Satz, MwSt. = round(Brutto × Satz / (100 + Satz)).
+ *  - Geschäftskunden (Netto-Basis): Netto je Satz (Positionen exakt netto, übrige Bestandteile einmal je Satz
+ *    entsteuert), MwSt. = round(Netto × Satz), Brutto = Netto + MwSt. Der Warenwert brutto (itemsGross) ergibt
+ *    sich daraus, sodass total = itemsGross − discount + deposit − depositRefund + deliveryFee + carryFee exakt gilt.
+ *  - Immer: Σ net + Σ vat = total, Σ vat = vat (auch bei negativem Endbetrag = Auszahlung).
+ */
+export function computeTotals(input: TotalsInput): Totals {
+  const lines = input.lines;
+  const discount = Math.max(0, Math.round(input.discount || 0));
+  const depositRefund = Math.max(0, Math.round(input.depositRefund || 0));
+  const deliveryFee = Math.max(0, Math.round(input.deliveryFee || 0));
+  const carryFee = Math.max(0, Math.round(input.carryFee || 0));
+  const itemsGrossLines = lines.reduce((s, l) => s + l.lineGross, 0);
+  const itemsNet = lines.reduce((s, l) => s + l.lineNet, 0);
+  const deposit = lines.reduce((s, l) => s + l.depositTotal, 0);
+
+  // Sätze: die der Positionen (Gewicht = Warenwert brutto), dazu 19 % für Leergut bzw. Gebühren ohne Ware
+  const rateSet = new Set<number>(lines.map((l) => l.vatRate));
+  if (depositRefund > 0 || rateSet.size === 0) rateSet.add(DEPOSIT_REFUND_VAT_RATE);
+  const rates = [...rateSet].sort((a, b) => b - a);
+  const weights = rates.map((r) => lines.reduce((s, l) => s + (l.vatRate === r ? l.lineGross : 0), 0));
+  const fallback = Math.max(0, rates.indexOf(DEPOSIT_REFUND_VAT_RATE));
+  const discountBy = allocateCents(discount, weights, fallback);
+  const deliveryBy = allocateCents(deliveryFee, weights, fallback);
+  const carryBy = allocateCents(carryFee, weights, fallback);
+
+  const b2b = input.customerType === 'b2b';
+  const breakdown: VatBreakdownLine[] = [];
+  const parts: TotalsNetParts = { items: 0, discount: 0, deposit: 0, depositRefund: 0, deliveryFee: 0, carryFee: 0 };
+  const netOfRate = (gross: number, rate: number) => roundHalfAway((gross * 100) / (100 + rate));
+
+  rates.forEach((rate, i) => {
+    const sameRate = lines.filter((l) => l.vatRate === rate);
+    const g = {
+      items: sameRate.reduce((s, l) => s + l.lineGross, 0),
+      discount: discountBy[i],
+      deposit: sameRate.reduce((s, l) => s + l.depositTotal, 0),
+      depositRefund: rate === DEPOSIT_REFUND_VAT_RATE ? depositRefund : 0,
+      deliveryFee: deliveryBy[i],
+      carryFee: carryBy[i],
+    };
+    const n: TotalsNetParts = {
+      items: b2b ? sameRate.reduce((s, l) => s + l.lineNet, 0) : netOfRate(g.items, rate),
+      discount: netOfRate(g.discount, rate),
+      deposit: netOfRate(g.deposit, rate),
+      depositRefund: netOfRate(g.depositRefund, rate),
+      deliveryFee: netOfRate(g.deliveryFee, rate),
+      carryFee: netOfRate(g.carryFee, rate),
+    };
+    const signedNet = (p: TotalsNetParts) => p.items - p.discount + p.deposit - p.depositRefund + p.deliveryFee + p.carryFee;
+    let net: number;
+    let vat: number;
+    if (b2b) {
+      net = signedNet(n);
+      vat = roundHalfAway((net * rate) / 100);
+    } else {
+      const gross = signedNet(g);
+      vat = roundHalfAway((gross * rate) / (100 + rate));
+      net = gross - vat;
+      // Rundungsrest der einzeln entsteuerten Bestandteile beim größten Bestandteil des Satzes ausgleichen
+      const diff = net - signedNet(n);
+      if (diff) {
+        const keys: (keyof TotalsNetParts)[] = ['items', 'deposit', 'deliveryFee', 'carryFee', 'discount', 'depositRefund'];
+        const key = keys.reduce((a, b) => (Math.abs(g[b]) > Math.abs(g[a]) ? b : a));
+        n[key] += key === 'discount' || key === 'depositRefund' ? -diff : diff;
+      }
+    }
+    if (net !== 0 || vat !== 0) breakdown.push({ rate, net, vat });
+    for (const k of Object.keys(parts) as (keyof TotalsNetParts)[]) parts[k] += n[k];
+  });
+
+  const vat = breakdown.reduce((s, l) => s + l.vat, 0);
+  const total = b2b
+    ? breakdown.reduce((s, l) => s + l.net + l.vat, 0)
+    : itemsGrossLines - discount + deposit - depositRefund + deliveryFee + carryFee;
+  const itemsGross = b2b ? total + discount - deposit + depositRefund - deliveryFee - carryFee : itemsGrossLines;
+  return {
+    itemsGross,
+    itemsNet,
+    discount,
+    deposit,
+    depositRefund,
+    deliveryFee,
+    carryFee,
+    vat,
+    total,
+    vatBreakdown: breakdown,
+    netParts: parts,
+  };
+}
+
+/** Summen einer gespeicherten Bestellung neu berechnen (z. B. nach geänderter Leergut-Gutschrift) */
+export function recomputeOrderTotals(
+  order: Pick<Order, 'customerType' | 'lines' | 'totals'>,
+  patch: Partial<Pick<Totals, 'depositRefund' | 'discount' | 'deliveryFee' | 'carryFee'>> = {},
+): Totals {
+  const t = order.totals;
+  return computeTotals({
+    customerType: order.customerType,
+    lines: order.lines,
+    discount: patch.discount ?? t.discount,
+    depositRefund: patch.depositRefund ?? t.depositRefund,
+    deliveryFee: patch.deliveryFee ?? t.deliveryFee,
+    carryFee: patch.carryFee ?? t.carryFee,
+  });
 }
 
 // ───────────────────────────── Gutscheine ─────────────────────────────
@@ -385,8 +547,6 @@ export function calculateQuote(input: CheckoutInput, qc: QuoteContext): Quote {
   }
 
   const itemsGross = lines.reduce((s, l) => s + l.lineGross, 0);
-  const itemsNet = lines.reduce((s, l) => s + l.lineNet, 0);
-  const deposit = lines.reduce((s, l) => s + l.depositTotal, 0);
 
   // ── Leergut-Rückgabe (je Art zusammengefasst und begrenzt) ──
   let depositRefund = 0;
@@ -404,7 +564,10 @@ export function calculateQuote(input: CheckoutInput, qc: QuoteContext): Quote {
       continue;
     }
     if (!type.returnable) {
-      errors.push({ code: 'empties', message: `„${type.shortName}“ kann nicht als Kasten zurückgegeben werden.` });
+      errors.push({
+        code: 'empties',
+        message: `„${type.shortName}“ kann nicht als Kasten zurückgegeben werden. Lose Flaschen erfassen Sie bitte einzeln (z. B. „Bierflasche lose“).`,
+      });
       continue;
     }
     emptiesByType.set(type, (emptiesByType.get(type) ?? 0) + e.qty);
@@ -412,6 +575,18 @@ export function calculateQuote(input: CheckoutInput, qc: QuoteContext): Quote {
   for (const [type, qty] of emptiesByType) {
     if (qty > MAX_QTY) {
       errors.push(invalidEmpties);
+      continue;
+    }
+    if (type.loose) {
+      // lose Einzelflaschen: kein Leergut-Konto, aber eine vernünftige Höchstmenge je Bestellung
+      if (qty > MAX_LOOSE_QTY) {
+        errors.push({
+          code: 'empties',
+          message: `Bitte melden Sie höchstens ${MAX_LOOSE_QTY} Stück „${type.shortName}“ an – größere Mengen nehmen wir gern im Markt an.`,
+        });
+        continue;
+      }
+      depositRefund += type.amount * qty;
       continue;
     }
     if (qc.depositBalance) {
@@ -482,25 +657,10 @@ export function calculateQuote(input: CheckoutInput, qc: QuoteContext): Quote {
     }
   }
 
-  // ── MwSt. (anteilig je Satz) ──
+  // ── Summen & MwSt. (je Satz) ──
   // Pfand gehört zum Entgelt der Lieferung (Satz des Artikels), die Leergut-Rücknahme mindert es (UStAE 10.1 Abs. 8).
-  const fees = deliveryFee + carryFee;
-  const grossByRate = new Map<number, number>();
-  for (const l of lines) grossByRate.set(l.vatRate, (grossByRate.get(l.vatRate) ?? 0) + l.lineGross);
-  let vatExact = 0;
-  if (itemsGross > 0) {
-    for (const [rate, gross] of grossByRate) {
-      const share = gross / itemsGross;
-      const base = gross - discount * share + fees * share;
-      vatExact += vatPart(base, rate);
-    }
-  } else {
-    vatExact = vatPart(fees, 19);
-  }
-  for (const l of lines) vatExact += vatPart(l.depositTotal, l.vatRate);
-  vatExact -= vatPart(depositRefund, DEPOSIT_REFUND_VAT_RATE);
-  const vat = roundCents(vatExact);
-  const total = itemsGross - discount + deposit - depositRefund + deliveryFee + carryFee;
+  const totals = computeTotals({ customerType, lines, discount, depositRefund, deliveryFee, carryFee });
+  const total = totals.total;
 
   // ── Treuepunkte ──
   const loyaltyPointsEarned =
@@ -539,7 +699,7 @@ export function calculateQuote(input: CheckoutInput, qc: QuoteContext): Quote {
   const quote: Quote = {
     customerType,
     lines,
-    totals: { itemsGross, itemsNet, discount, deposit, depositRefund, deliveryFee, carryFee, vat, total },
+    totals,
     missingForMinOrder,
     missingForFreeDelivery,
     loyaltyPointsEarned,

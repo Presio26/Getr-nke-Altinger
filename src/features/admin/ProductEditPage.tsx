@@ -27,6 +27,7 @@ import {
   toast,
 } from '@/components/ui';
 import { ProductImage, productTint } from '@/components/product';
+import { StickyActionBar } from '@/components/layout/StickyActionBar';
 import { formatPercent, netFromGross, parseDecimalInput, parseEuro, parseIntInput, stockLevel } from './master/lib';
 import { ColorField, EuroField, FormSection, StockDot, stockLabel, stockTextClass } from './master/ui';
 import {
@@ -38,6 +39,7 @@ import {
   emptyDraft,
   previewProduct,
   validateDraft,
+  tierWarnings,
   type ProductDraft,
 } from './master/products/productDraft';
 import { TierEditor } from './master/products/TierEditor';
@@ -255,6 +257,11 @@ function ProductEditor({ product }: { product: Product | undefined }) {
 
   const set = <K extends keyof ProductDraft>(key: K, value: ProductDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const errors = useMemo(() => validateDraft(draft, categories), [draft, categories]);
+  const warnings = useMemo(() => tierWarnings(draft), [draft]);
+  const baseListNet = useMemo(() => {
+    const p = parseEuro(initial.price);
+    return p !== null && p > 0 ? netFromGross(p, initial.vatRate) : null;
+  }, [initial]);
   const errorCount = Object.keys(errors).length;
   const dirty = draftKey(draft) !== draftKey(initial);
   const err = (key: keyof ProductDraft) => (showErrors ? errors[key] : undefined);
@@ -289,8 +296,11 @@ function ProductEditor({ product }: { product: Product | undefined }) {
       });
       qc.setQueryData(qk.product(p.id), p);
       void qc.invalidateQueries({ queryKey: qk.admin });
+      const warn = Object.keys(tierWarnings(draft)).length;
       toast.success(isNew ? `„${p.brand} ${p.name}“ wurde angelegt` : `„${p.brand} ${p.name}“ wurde gespeichert`, {
-        description: p.active ? 'Die Änderungen sind sofort im Shop sichtbar.' : 'Der Artikel ist im Shop ausgeblendet.',
+        description: `${p.active ? 'Die Änderungen sind sofort im Shop sichtbar.' : 'Der Artikel ist im Shop ausgeblendet.'}${
+          warn ? ` Hinweis: ${warn === 1 ? '1 Staffelpreis liegt' : `${warn} Staffelpreise liegen`} nicht unter dem Listen-Netto.` : ''
+        }`,
       });
       leaving.current = true;
       navigate(backTo);
@@ -542,7 +552,16 @@ function ProductEditor({ product }: { product: Product | undefined }) {
           </FormSection>
 
           <FormSection title="Staffelpreise für Geschäftskunden" subtitle="Netto-Stückpreise ab einer Mindestmenge" icon={Layers}>
-            <TierEditor tiers={draft.tiers} onChange={(tiers) => set('tiers', tiers)} listNet={listNet} vatRate={draft.vatRate} errors={errors} showErrors={showErrors} />
+            <TierEditor
+              tiers={draft.tiers}
+              onChange={(tiers) => set('tiers', tiers)}
+              listNet={listNet}
+              vatRate={draft.vatRate}
+              errors={errors}
+              showErrors={showErrors}
+              warnings={warnings}
+              baseListNet={baseListNet}
+            />
           </FormSection>
 
           <FormSection title="Lager" subtitle="Bestand, Meldebestand und Lagerplatz im Markt" icon={Warehouse}>
@@ -648,9 +667,9 @@ function ProductEditor({ product }: { product: Product | undefined }) {
       </form>
 
       {/* Aktionsleiste Handy/Tablet */}
-      <div className="sticky bottom-0 z-10 -mx-4 mt-6 border-t border-slate-200 bg-white/95 pb-safe-4 pl-16 pr-4 pt-3 backdrop-blur sm:-mx-6 sm:px-6 lg:hidden">
+      <StickyActionBar offset="none">
         <div className="flex gap-2 max-sm:[&>*]:flex-1 sm:justify-end">{actions}</div>
-      </div>
+      </StickyActionBar>
 
       <ConfirmModal
         open={blocker.state === 'blocked'}

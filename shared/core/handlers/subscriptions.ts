@@ -77,8 +77,10 @@ function createSubscriptionOrder(e: Engine, sub: Subscription, date: DayString, 
     address,
     now,
     by: 'Abo',
+    source: 'subscription',
     subscriptionId: sub.id,
     autoAdvance: ['confirmed'],
+    autoAdvanceNote: 'Abo automatisch eingeplant',
   });
   sub.lastOrderId = order.id;
   notifyCustomer(
@@ -97,7 +99,10 @@ function createSubscriptionOrder(e: Engine, sub: Subscription, date: DayString, 
 
 export function subscriptionHandlers(
   e: Engine,
-): Pick<CoreHandlers, 'listMySubscriptions' | 'saveSubscription' | 'deleteSubscription' | 'adminListSubscriptions' | 'adminRunSubscriptions'> {
+): Pick<
+  CoreHandlers,
+  'listMySubscriptions' | 'saveSubscription' | 'deleteSubscription' | 'adminListSubscriptions' | 'adminRunSubscriptions' | 'adminSetSubscriptionActive'
+> {
   return {
     listMySubscriptions(ctx) {
       const { customer } = requireCustomer(e, ctx);
@@ -175,6 +180,35 @@ export function subscriptionHandlers(
     adminListSubscriptions(ctx) {
       requireAdmin(ctx);
       return [...e.db.subscriptions].sort((a, b) => a.nextDate.localeCompare(b.nextDate) || a.name.localeCompare(b.name));
+    },
+
+    adminSetSubscriptionActive(ctx, subscriptionId, active) {
+      requireAdmin(ctx);
+      if (typeof active !== 'boolean') throw new ApiError('validation', 'Bitte geben Sie an, ob das Abo aktiv sein soll.');
+      const sub = findSubscription(e, subscriptionId);
+      if (sub.active === active) return sub;
+      sub.active = active;
+      const today = todayString(ctx.now);
+      // nach einer Pause nicht rückwirkend liefern: nächster passender Liefertag ab morgen
+      if (active && sub.nextDate <= today) sub.nextDate = computeNextDate(sub.weekday, today);
+      emitSubscription(e, sub);
+      const customer = e.db.customers.find((c) => c.id === sub.customerId);
+      const b2b = customer?.type === 'b2b';
+      const what = b2b ? 'Dauerauftrag' : 'Abo';
+      notifyCustomer(
+        e,
+        sub.customerId,
+        {
+          title: active ? `${what} fortgesetzt` : `${what} pausiert`,
+          body: active
+            ? `„${sub.name}“ läuft wieder – nächste Lieferung am ${formatDate(sub.nextDate, 'medium')}.`
+            : `Der Markt hat „${sub.name}“ pausiert. Bis zur Fortsetzung wird nichts geliefert. Fragen? ${e.db.settings.phone}`,
+          kind: 'order',
+          link: b2b ? '/business/dauerauftraege' : '/konto/abos',
+        },
+        ctx.now,
+      );
+      return sub;
     },
 
     adminRunSubscriptions(ctx, untilDate) {

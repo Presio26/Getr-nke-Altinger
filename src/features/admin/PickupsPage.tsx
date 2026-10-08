@@ -15,7 +15,6 @@ import { useNow } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
 import { Badge, Button, Card, EmptyState, ErrorState, Input, OrderStatusBadge, PageHeader, Skeleton, Tabs, errorMessage } from '@/components/ui';
 import { useAdminOrder, useAdminOrders } from './ops/api';
-import { hasBarcodeDetector } from './ops/hooks';
 import { OPEN_STATUSES, orderCrates, windowLabel } from './ops/model';
 import { B2BTag } from './ops/components/OrderBits';
 import { QuickStepButton } from './ops/components/StatusActions';
@@ -88,7 +87,6 @@ export default function PickupsPage() {
   const [checkError, setCheckError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
-  const canScan = useMemo(() => hasBarcodeDetector(), []);
 
   const todayQ = useAdminOrders(useMemo(() => ({ fulfillment: 'pickup' as const, date: today }), [today]));
   const tomorrowQ = useAdminOrders(useMemo(() => ({ fulfillment: 'pickup' as const, date: tomorrow }), [tomorrow]));
@@ -155,7 +153,7 @@ export default function PickupsPage() {
               <p className="flex items-center gap-2 text-sm font-semibold text-white/80">
                 <ScanLine size={18} aria-hidden /> Abholcode prüfen
               </p>
-              <p className="mt-1 text-sm text-white/70">Code aus der Bestätigung, Bestellnummer oder QR-Inhalt – mit Enter bestätigen.</p>
+              <p className="mt-1 text-sm text-white/70">Code eintippen, mit dem Handscanner einlesen oder den QR-Code des Kunden mit der Kamera scannen.</p>
             </div>
             <form onSubmit={onSubmit} className="space-y-3" noValidate>
               <Input
@@ -179,11 +177,9 @@ export default function PickupsPage() {
                 <Button type="submit" size="lg" icon={CheckCircle2} loading={checking} block className="flex-1">
                   Prüfen
                 </Button>
-                {canScan ? (
-                  <Button type="button" size="lg" variant="outline" icon={Camera} onClick={() => setScanOpen(true)} aria-label="QR-Code mit der Kamera scannen">
-                    Scannen
-                  </Button>
-                ) : null}
+                <Button type="button" size="lg" variant="outline" icon={Camera} onClick={() => setScanOpen(true)} aria-label="QR-Code mit der Kamera scannen">
+                  QR scannen
+                </Button>
               </div>
             </form>
           </Card>

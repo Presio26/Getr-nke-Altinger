@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn';
 import { Badge, Button, Card, IconButton, QuantityStepper, toast } from '@/components/ui';
 import { PriceDisplay } from './PriceDisplay';
 import { ProductImage, productTint } from './ProductImage';
+import { useTouchStepperSize } from './touch';
 
 export interface ProductCardProps {
   product: Product;
@@ -107,6 +108,7 @@ export const ProductCard = memo(function ProductCard({ product, layout = 'grid',
     ? [...(product.tierPrices ?? [])].sort((a, b) => a.minQty - b.minQty).find((t) => t.minQty > 1 && t.priceNet < price.displayUnit)
     : undefined;
   const label = `${product.brand} ${product.name}`;
+  const stepper = useTouchStepperSize();
 
   if (layout === 'row') {
     return (
@@ -137,7 +139,7 @@ export const ProductCard = memo(function ProductCard({ product, layout = 'grid',
           {soldOut ? (
             <Badge tone="neutral">Ausverkauft</Badge>
           ) : qty > 0 ? (
-            <QuantityStepper value={qty} onChange={setQty} size="sm" removeAtMin max={max} label={label} />
+            <QuantityStepper value={qty} onChange={setQty} size={stepper} removeAtMin max={max} label={label} />
           ) : (
             <IconButton icon={ShoppingCart} label={`${label} in den Warenkorb`} variant="primary" onClick={onAdd} />
           )}

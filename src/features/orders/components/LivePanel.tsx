@@ -140,3 +140,98 @@ export function LivePanel({ order, tracking, eta, loading, className }: LivePane
     </div>
   );
 }
+
+/**
+ * Mobil: kompakte Live-Leiste direkt über der Karte – Ankunft, nächster Stopp, Fahrer + Anrufen im ersten Bild.
+ * (Desktop zeigt stattdessen das ausführliche LivePanel neben der Karte.)
+ */
+export function LiveStrip({ order, tracking, eta, loading, className }: LivePanelProps) {
+  const driver = tracking?.driver;
+  const tour = tracking?.tour;
+  const first = driver?.name.split(' ')[0];
+  const out = order.status === 'out_for_delivery';
+  const arrived = out && (!!order.arrivedAt || eta?.minutes === 0);
+  const stopsBefore = tour?.stopsBefore ?? 0;
+  const nextUp = out && !arrived && tour?.status === 'active' && stopsBefore === 0;
+
+  const stopText = arrived
+    ? order.arrivedAt
+      ? `Angekommen um ${formatTime(order.arrivedAt)} Uhr – bitte öffnen Sie die Tür.`
+      : 'Bitte öffnen Sie die Tür.'
+    : out
+      ? nextUp
+        ? 'Sie sind als Nächstes dran!'
+        : stopsBefore === 1
+          ? 'Noch 1 Stopp vor Ihnen'
+          : `Noch ${stopsBefore} Stopps vor Ihnen`
+      : tour && tour.stopsBefore > 0
+        ? `Verladen · ${tour.stopsBefore} ${tour.stopsBefore === 1 ? 'Stopp' : 'Stopps'} vor Ihnen geplant`
+        : 'Verladen – Abfahrt in Kürze';
+
+  return (
+    <div className={cn('overflow-hidden bg-white', arrived && 'bg-emerald-600 text-white', className)} role="status" aria-live="polite">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          {arrived ? (
+            <p className="flex items-center gap-2 text-lg font-bold leading-tight">
+              <BellRing size={20} aria-hidden className="shrink-0" />
+              {first ?? 'Ihr Fahrer'} ist da!
+            </p>
+          ) : eta && out ? (
+            <p className="text-lg font-bold leading-tight text-slate-900">
+              Ankunft in ca. <span className="tabular-nums">{eta.minutes}</span> Min.{' '}
+              <span className="inline-block whitespace-nowrap text-sm font-medium text-slate-500">gegen {formatTime(eta.arrival)} Uhr</span>
+            </p>
+          ) : (
+            <p className="text-lg font-bold leading-tight text-slate-900">
+              {eta ? (
+                <>
+                  Geplant gegen <span className="tabular-nums">{formatTime(eta.arrival)}</span> Uhr
+                </>
+              ) : loading ? (
+                'Ankunft wird berechnet …'
+              ) : (
+                `Lieferung ${order.slot.start}–${order.slot.end} Uhr`
+              )}
+            </p>
+          )}
+          <p
+            className={cn(
+              'mt-0.5 flex items-center gap-1.5 text-sm font-semibold',
+              arrived ? 'text-white/90' : nextUp ? 'text-accent-800' : 'text-slate-600',
+            )}
+          >
+            {!arrived ? <MapPin size={14} aria-hidden className={cn('shrink-0', nextUp ? 'text-accent-600' : 'text-slate-400')} /> : null}
+            {stopText}
+          </p>
+        </div>
+        {out && !arrived ? (
+          <span className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-red-600 ring-1 ring-inset ring-red-200">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" aria-hidden />
+            Live
+          </span>
+        ) : null}
+      </div>
+      {driver ? (
+        <div className={cn('flex items-center gap-3 border-t px-4 py-2.5', arrived ? 'border-white/20' : 'border-slate-100')}>
+          <Avatar name={driver.name} color={driver.color} size="md" />
+          <div className="min-w-0 flex-1">
+            <p className={cn('truncate text-[15px] font-semibold', arrived ? 'text-white' : 'text-slate-900')}>{driver.name}</p>
+            <p className={cn('truncate text-xs', arrived ? 'text-white/80' : 'text-slate-500')}>Ihr Fahrer · {driver.vehicle.split('·')[0].trim()}</p>
+          </div>
+          <a
+            href={telHref(driver.phone)}
+            aria-label={`${driver.name} anrufen`}
+            className={cn(
+              'inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold shadow-sm transition-colors',
+              arrived ? 'bg-white text-emerald-700 hover:bg-emerald-50' : 'bg-emerald-600 text-white hover:bg-emerald-700',
+            )}
+          >
+            <Phone size={18} aria-hidden />
+            Anrufen
+          </a>
+        </div>
+      ) : null}
+    </div>
+  );
+}

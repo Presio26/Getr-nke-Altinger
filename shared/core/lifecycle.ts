@@ -5,7 +5,7 @@
 import { ApiError } from '../api';
 import type { EmptiesLine, Order, OrderStatus } from '../types';
 import type { Engine } from './engine';
-import { assertTransition, restoreStock, transitionOrder, applyCompletion, uniquePickupCode } from './orderOps';
+import { assertTransition, intermediateSteps, restoreStock, transitionOrder, applyCompletion, uniquePickupCode } from './orderOps';
 import { completeOp, detachOrderFromTour, failOp, isStopDone, sanitizeProof } from './tourOps';
 import { notifyAdmin } from './notify';
 
@@ -44,7 +44,11 @@ function collectedEmpties(e: Engine, order: Order, input: unknown, now: Date): E
   return sanitizeProof(e, { emptiesCollected: input as EmptiesLine[] }, now, []).emptiesCollected;
 }
 
-/** Statuswechsel durch den Markt inkl. aller Nebenwirkungen */
+/**
+ * Statuswechsel durch den Markt inkl. aller Nebenwirkungen.
+ * Springt der Markt mehrere Stufen nach vorn (z. B. Eingegangen → Abgeholt), werden die Zwischenstufen nur im
+ * Verlauf vermerkt – der Kunde bekommt EINE Benachrichtigung für den Endstatus.
+ */
 export function adminSetStatusOp(
   e: Engine,
   order: Order,
@@ -55,6 +59,41 @@ export function adminSetStatusOp(
   emptiesCollected?: unknown,
 ): void {
   if (order.status === status) return;
+  const steps = intermediateSteps(order, status);
+  if (!steps) {
+    applyAdminStatus(e, order, status, now, by, note, emptiesCollected);
+    return;
+  }
+  // Zwischenstufen still (ohne Benachrichtigung/Ereignis); scheitert der Endstatus, wird alles zurückgenommen
+  const snapshot = JSON.parse(JSON.stringify(order)) as Order;
+  try {
+    for (const step of steps) {
+      if (step === 'out_for_delivery' && order.tourId) {
+        const tour = e.db.tours.find((t) => t.id === order.tourId);
+        if (tour && tour.status !== 'active') {
+          throw new ApiError('conflict', `Diese Bestellung ist für „${tour.name}“ eingeplant – bitte die Tour starten.`);
+        }
+      }
+      if (step === 'ready' && order.fulfillment === 'pickup' && !order.pickupCode) order.pickupCode = uniquePickupCode(e);
+      transitionOrder(e, order, step, now, { by, silent: true, noEmit: true });
+    }
+    applyAdminStatus(e, order, status, now, by, note, emptiesCollected);
+  } catch (err) {
+    for (const key of Object.keys(order) as (keyof Order)[]) if (!(key in snapshot)) delete order[key];
+    Object.assign(order, snapshot);
+    throw err;
+  }
+}
+
+function applyAdminStatus(
+  e: Engine,
+  order: Order,
+  status: OrderStatus,
+  now: Date,
+  by: string,
+  note?: string,
+  emptiesCollected?: unknown,
+): void {
   switch (status) {
     case 'cancelled':
       cancelOrderOp(e, order, now, by, note);

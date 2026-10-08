@@ -7,11 +7,13 @@
  *
  * Moduswahl (docs/ARCHITECTURE.md §3): VITE_API_MODE = remote | local | auto (Default auto).
  * auto: GET /api/health mit 2,5 s Timeout → Erfolg = remote; eindeutig kein Server (404, HTML eines
- * Static-Hostings) = local. Ist der Server nur gerade nicht erreichbar (Netz weg, Kaltstart, 5xx), bleibt es
- * bei remote, sobald auf diesem Gerät schon einmal ein Server geantwortet hat (bzw. VITE_API_URL gesetzt
- * ist) – sonst liefen z. B. Fahrer-Zustellungen still in lokale Demo-Daten statt zum Markt.
- * Zusätzlich (nur bei auto) lässt sich der Modus für Demos per URL erzwingen: `?api=local` bzw. `?api=remote`
- * (gilt für die Browser-Sitzung).
+ * Static-Hostings) = local. Ist der Server nur gerade nicht erreichbar (Kaltstart, Funkloch, 5xx), bleibt es
+ * bei remote – nie still lokal: Die App zeigt beim Start „Verbinde mit Server …“ (bis ca. 60 s, mit Knopf
+ * „Offline-Demo starten“), danach ein Banner „Keine Verbindung“, bis socket.io wieder verbunden ist.
+ * Nur wenn das Gerät selbst offline ist UND hier noch nie ein Server geantwortet hat, startet direkt der
+ * lokale Modus (Offline-Demo). Sonst liefen z. B. Fahrer-Zustellungen still in lokale Demo-Daten.
+ * Zusätzlich (nur bei auto) lässt sich der Modus für Demos per URL erzwingen: `?api=local` bzw. `?api=remote`,
+ * `?api=auto` hebt das wieder auf (gilt für den Tab; der Parameter wird danach aus der Adresse entfernt).
  *
  * Optionale Basis-URL des Servers (wenn das Frontend woanders gehostet wird): VITE_API_URL.
  */
@@ -39,6 +41,8 @@ export interface Transport {
   setToken(token: string | null): void;
   /** Verbindungen/Timer beenden */
   dispose(): void;
+  /** Echtzeit-Verbindung sofort neu aufbauen (statt auf den nächsten automatischen Versuch zu warten) */
+  reconnect?(): void;
 }
 
 export interface TransportInit {
@@ -69,6 +73,18 @@ function configuredMode(): 'remote' | 'local' | 'auto' {
   return 'auto';
 }
 
+/** `?api=…` nach dem Auswerten aus der Adresse entfernen (die Wahl steht im sessionStorage) */
+function stripModeParam(): void {
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('api')) return;
+    url.searchParams.delete('api');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    /* nicht kritisch */
+  }
+}
+
 /** Modus-Erzwingung per URL-Parameter `?api=local|remote` (merkt sich die Wahl für die Sitzung) */
 function urlModeOverride(): ApiMode | null {
   if (typeof window === 'undefined') return null;
@@ -76,10 +92,12 @@ function urlModeOverride(): ApiMode | null {
     const param = new URLSearchParams(window.location.search).get('api')?.toLowerCase();
     if (param === 'local' || param === 'remote') {
       window.sessionStorage.setItem(MODE_OVERRIDE_KEY, param);
+      stripModeParam();
       return param;
     }
     if (param === 'auto') {
       window.sessionStorage.removeItem(MODE_OVERRIDE_KEY);
+      stripModeParam();
       return null;
     }
     const stored = window.sessionStorage.getItem(MODE_OVERRIDE_KEY);
@@ -113,6 +131,8 @@ let transport: Transport | null = null;
 let mode: ApiMode = configuredMode() === 'local' ? 'local' : 'remote';
 let initPromise: Promise<ApiMode> | null = null;
 let authToken: string | null = null;
+/** Ergebnis der Server-Prüfung beim Start: false = Server (noch) nicht erreichbar → Start-Bildschirm wartet */
+let reachableAtStart = true;
 
 const eventHandlers = new Set<(event: RealtimeEvent) => void>();
 const statusListeners = new Set<(status: RealtimeStatus) => void>();
@@ -195,6 +215,10 @@ export async function checkServerHealth(timeoutMs = HEALTH_TIMEOUT_MS): Promise<
   return (await probeServer(timeoutMs)) === 'remote';
 }
 
+function deviceOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 /** auto-Modus: remote/local aus der Server-Prüfung (siehe Kopfkommentar) */
 async function detectMode(): Promise<{ target: ApiMode; reachable: boolean }> {
   const check = await probeServer();
@@ -206,8 +230,9 @@ async function detectMode(): Promise<{ target: ApiMode; reachable: boolean }> {
     rememberServer('none');
     return { target: 'local', reachable: false };
   }
-  // nur vorübergehend nicht erreichbar: bei bekanntem Server nicht still auf lokale Daten wechseln
-  return { target: serverKnown() ? 'remote' : 'local', reachable: false };
+  // nur vorübergehend nicht erreichbar (Kaltstart, Funkloch): nicht still auf lokale Daten wechseln.
+  // Ausnahme: Gerät offline und hier noch nie ein Server → Offline-Demo.
+  return { target: serverKnown() || !deviceOffline() ? 'remote' : 'local', reachable: false };
 }
 
 async function createTransport(target: ApiMode): Promise<Transport> {
@@ -233,6 +258,7 @@ async function doInit(): Promise<ApiMode> {
   }
 
   mode = target;
+  reachableAtStart = target === 'local' || reachable;
   if (target === 'local') hooks.onStatus('online');
   // Server bekannt, aber gerade nicht erreichbar: offline anzeigen (socket.io verbindet sich selbst neu)
   else if (!reachable) hooks.onStatus('offline');
@@ -266,6 +292,57 @@ export function getApiMode(): ApiMode {
 /** true, sobald initApi() abgeschlossen ist */
 export function isApiReady(): boolean {
   return transport !== null;
+}
+
+/** false, wenn der Server bei der Prüfung in initApi() nicht erreichbar war (remote, Start-Bildschirm wartet) */
+export function wasServerReachableAtStart(): boolean {
+  return reachableAtStart;
+}
+
+/** true, wenn der Modus automatisch gewählt wird (kein festes VITE_API_MODE) – dann ist ein Wechsel per `?api=` möglich */
+export function isModeSwitchable(): boolean {
+  return configuredMode() === 'auto';
+}
+
+export interface WaitForServerOptions {
+  /** Gesamtdauer, Default 60 s (Render-Kaltstart) */
+  timeoutMs?: number;
+  /** Fortschritt 0…1 (vergangene Zeit) */
+  onProgress?: (fraction: number, elapsedMs: number) => void;
+  signal?: AbortSignal;
+}
+
+/**
+ * Wartet, bis der Server antwortet (GET /api/health wiederholt). true = erreichbar, false = Frist abgelaufen
+ * bzw. abgebrochen. Merkt sich den Server und setzt den Status nicht selbst – socket.io meldet „online“.
+ */
+export async function waitForServer({ timeoutMs = 60_000, onProgress, signal }: WaitForServerOptions = {}): Promise<boolean> {
+  const started = Date.now();
+  const tick = () => onProgress?.(Math.min(1, (Date.now() - started) / timeoutMs), Date.now() - started);
+  const timer = typeof window !== 'undefined' ? window.setInterval(tick, 250) : 0;
+  try {
+    while (!signal?.aborted) {
+      tick();
+      const remaining = timeoutMs - (Date.now() - started);
+      if (remaining <= 0) return false;
+      const check = await probeServer(Math.min(5000, remaining));
+      if (check === 'remote') {
+        rememberServer('remote');
+        reachableAtStart = true;
+        return true;
+      }
+      if (signal?.aborted) return false;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1500, Math.max(0, timeoutMs - (Date.now() - started)))));
+    }
+    return false;
+  } finally {
+    if (timer) window.clearInterval(timer);
+  }
+}
+
+/** Echtzeit-Verbindung sofort neu aufbauen (Knopf „Jetzt verbinden“ im Verbindungs-Banner) */
+export function reconnectRealtime(): void {
+  transport?.reconnect?.();
 }
 
 /** Anmelde-Token setzen (nach Login) bzw. entfernen (null, nach Logout). Wirkt sofort auch auf die Echtzeit-Verbindung. */

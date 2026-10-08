@@ -6,7 +6,7 @@ import { formatDate, formatEuro } from '@shared/format';
 import { addDays, todayString } from '@shared/time';
 import { usePrice, useProducts } from '@/api/hooks';
 import { useCart, useCartQty } from '@/stores/cart';
-import { ProductImage, productTint } from '@/components/product';
+import { ProductImage, productTint, useTouchStepperSize } from '@/components/product';
 import { Badge, Button, ButtonLink, Card, EmptyState, ErrorState, Input, Notice, QuantityStepper, Skeleton, toast } from '@/components/ui';
 import { isValidEventDate, useRentalAvailability } from '../lib/useRentalAvailability';
 
@@ -23,6 +23,7 @@ function AvailabilityBadge({ info, valid, failed }: { info?: RentalAvailability;
 }
 
 function RentalCard({ product, info, eventDate, valid, failed }: { product: Product; info?: RentalAvailability; eventDate: string; valid: boolean; failed?: boolean }) {
+  const stepper = useTouchStepperSize();
   const price = usePrice(product);
   const qty = useCartQty(product.id);
   const setQty = useCart((s) => s.setQty);
@@ -82,7 +83,7 @@ function RentalCard({ product, info, eventDate, valid, failed }: { product: Prod
               }}
               min={0}
               max={valid && info ? Math.max(qty, available) : 999}
-              size="sm"
+              size={stepper}
               removeAtMin
               label={product.name}
             />

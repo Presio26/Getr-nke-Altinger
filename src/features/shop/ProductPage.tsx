@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Home,
   Info,
+  LayoutGrid,
   PackageX,
   PartyPopper,
   Recycle,
@@ -34,7 +36,8 @@ import {
 import { useCart, useCartQty } from '@/stores/cart';
 import { useSession } from '@/stores/session';
 import { FavoriteButton, PriceDisplay, ProductBadges, ProductImage, productTint } from '@/components/product';
-import { Badge, Button, ButtonLink, Card, EmptyState, ErrorState, KeyValue, Notice, QuantityStepper, Section, Skeleton, toast } from '@/components/ui';
+import { Badge, Button, ButtonLink, Card, EmptyState, ErrorState, KeyValue, Notice, PageHeader, QuantityStepper, Section, Skeleton, toast } from '@/components/ui';
+import { StickyActionBar } from '@/components/layout/StickyActionBar';
 import { useDocumentTitle } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
 import { CATEGORY_AFFINITY, MATERIAL_LABEL, PACK_LABEL, isAlcoholFree, packKind, popularity } from './components/catalog';
@@ -209,27 +212,7 @@ export default function ProductPage() {
   if ((waitForList || isLoading) && !product) return <ProductSkeleton />;
   if ((isError || missing) && !product) {
     const notFound = missing || (error instanceof ApiError && error.code === 'not_found');
-    return (
-      <Card className="mx-auto mt-4 max-w-2xl">
-        {notFound ? (
-          <EmptyState
-            icon={PackageX}
-            title="Diesen Artikel gibt es nicht (mehr)"
-            description="Vielleicht wurde er aus dem Sortiment genommen. Stöbern Sie in unserem Sortiment oder nutzen Sie die Suche."
-            action={
-              <>
-                <ButtonLink to="/sortiment">Zum Sortiment</ButtonLink>
-                <ButtonLink to="/angebote" variant="outline">
-                  Angebote ansehen
-                </ButtonLink>
-              </>
-            }
-          />
-        ) : (
-          <ErrorState error={error} onRetry={() => void refetch()} />
-        )}
-      </Card>
-    );
+    return <ProductNotFound notFound={notFound} error={error} onRetry={() => void refetch()} />;
   }
   if (!product) return null;
   return <ProductView key={product.id} product={product} />;
@@ -266,6 +249,17 @@ function ProductView({ product }: { product: Product }) {
   }, [isB2B, customer, product, qty, depositTypes, price.displayUnit]);
   const lineTotal = price.displayUnit * qty;
   const staff = role === 'admin' || role === 'driver';
+
+  // Mobil: Kaufleiste über der Tab-Leiste, sobald der Kaufbereich nicht mehr im Bild ist
+  const buyRef = useRef<HTMLDivElement>(null);
+  const [buyVisible, setBuyVisible] = useState(true);
+  useEffect(() => {
+    const el = buyRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([entry]) => setBuyVisible(entry.isIntersecting), { rootMargin: '0px 0px -120px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [soldOut]);
 
   const { matching, similar } = useMemo(() => related(product, products ?? []), [product, products]);
 
@@ -384,7 +378,7 @@ function ProductView({ product }: { product: Product }) {
               </Notice>
             ) : null}
 
-            <div className="mt-5 border-t border-slate-100 pt-5">
+            <div ref={buyRef} className="mt-5 border-t border-slate-100 pt-5">
               {soldOut ? (
                 <Button variant="outline" size="lg" block disabled icon={XCircle}>
                   {product.active ? 'Derzeit ausverkauft' : 'Nicht mehr erhältlich'}
@@ -496,6 +490,64 @@ function ProductView({ product }: { product: Product }) {
           <ProductRail products={similar} label="Ähnliche Artikel" />
         </Section>
       ) : null}
+
+      {!soldOut && !buyVisible ? (
+        <StickyActionBar className="animate-fade-in">
+          <div className="flex items-center gap-3">
+            <QuantityStepper value={qty} onChange={(n) => setQty(Math.max(1, n))} min={1} max={maxQty} size="md" label={`${product.brand} ${product.name}`} className="shrink-0" />
+            <div className="min-w-0 flex-1">
+              <Button icon={ShoppingCart} onClick={addToCart} block className="h-12 px-3" aria-label={`${qty} × ${product.brand} ${product.name} ${rental ? 'vormerken' : 'in den Warenkorb'}`}>
+                <span className="flex flex-col items-start leading-tight">
+                  <span className="text-[15px]">{rental ? 'Vormerken' : 'In den Warenkorb'}</span>
+                  <span className="whitespace-nowrap text-xs font-medium tabular-nums text-white/80">
+                    {formatEuro(lineTotal)}
+                    {isB2B ? ' netto' : ''}
+                    {price.depositUnit > 0 ? ' zzgl. Pfand' : ''}
+                  </span>
+                </span>
+              </Button>
+            </div>
+          </div>
+        </StickyActionBar>
+      ) : null}
+    </>
+  );
+}
+
+/** Nicht gefunden / Fehler – einheitliches Muster: Seitenüberschrift (h1) + EmptyState mit gleichen Aktionen */
+function ProductNotFound({ notFound, error, onRetry }: { notFound: boolean; error: unknown; onRetry: () => void }) {
+  return (
+    <>
+      <PageHeader title={notFound ? 'Artikel nicht gefunden' : 'Artikel'} back="/sortiment" />
+      <Card padding="none">
+        {notFound ? (
+          <EmptyState
+            icon={PackageX}
+            title="Diesen Artikel gibt es nicht (mehr)"
+            description="Vielleicht wurde er aus dem Sortiment genommen. Stöbern Sie in unserem Sortiment oder nutzen Sie die Suche."
+            action={
+              <>
+                <ButtonLink to="/sortiment" icon={LayoutGrid}>
+                  Zum Sortiment
+                </ButtonLink>
+                <ButtonLink to="/" variant="outline" icon={Home}>
+                  Zur Startseite
+                </ButtonLink>
+              </>
+            }
+          />
+        ) : (
+          <ErrorState
+            error={error}
+            onRetry={onRetry}
+            action={
+              <ButtonLink to="/sortiment" variant="outline" icon={LayoutGrid}>
+                Zum Sortiment
+              </ButtonLink>
+            }
+          />
+        )}
+      </Card>
     </>
   );
 }

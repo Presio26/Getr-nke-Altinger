@@ -8,7 +8,7 @@ import { addDays, todayString } from '@shared/time';
 import { api } from '@/api/client';
 import { qk, useApiMutation, useDepositTypes, usePrice, useProducts, useSettings } from '@/api/hooks';
 import { cn } from '@/lib/cn';
-import { ProductImage, productTint } from '@/components/product';
+import { ProductImage, productTint, useTouchStepperSize } from '@/components/product';
 import { Button, Input, Modal, Notice, QuantityStepper, Skeleton, Switch } from '@/components/ui';
 import { ChipGroup } from './ChipGroup';
 import { AddressFormModal } from './AddressFormModal';
@@ -73,6 +73,7 @@ function PickRow({ product, qty, onAdd }: { product: Product; qty: number; onAdd
 }
 
 function SelectedRow({ product, qty, onChange }: { product: Product; qty: number; onChange: (n: number) => void }) {
+  const stepper = useTouchStepperSize();
   const price = usePrice(product, qty);
   const line = price.showNet ? price.price.lineNet : price.price.lineGross;
   return (
@@ -90,7 +91,7 @@ function SelectedRow({ product, qty, onChange }: { product: Product; qty: number
           {price.showNet ? ' netto' : ''}
         </span>
       </span>
-      <QuantityStepper value={qty} onChange={onChange} min={0} max={99} size="sm" removeAtMin label={`${product.brand} ${product.name}`} />
+      <QuantityStepper value={qty} onChange={onChange} min={0} max={99} size={stepper} removeAtMin label={`${product.brand} ${product.name}`} />
     </li>
   );
 }

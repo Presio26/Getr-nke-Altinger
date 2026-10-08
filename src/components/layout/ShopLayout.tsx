@@ -25,7 +25,9 @@ import { useNow } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
 import { Logo } from '@/components/brand/Logo';
 import { IconButton, PageLoader } from '@/components/ui';
+import { useDemoTripleTap } from '@/components/demo/useDemoTripleTap';
 import { AccountMenu } from './AccountMenu';
+import { ConnectionBanner } from './ConnectionBanner';
 import { Footer, telHref } from './Footer';
 import { NotificationBell } from './NotificationBell';
 
@@ -38,15 +40,18 @@ function AnnouncementBar() {
   if (!text || dismissed === text) return null;
   return (
     <div className="relative bg-gradient-to-r from-brand-800 via-brand-700 to-brand-800 text-white">
-      <div className="mx-auto flex max-w-7xl items-center justify-center gap-2.5 px-12 py-2 text-center text-[13px] font-medium sm:text-sm">
+      {/* mobil einzeilig (kleiner, mit Auslassungspunkten), ab sm mittig mit Symbol */}
+      <div className="mx-auto flex max-w-7xl items-center gap-2.5 py-1.5 pl-4 pr-11 text-[12.5px] font-medium sm:justify-center sm:px-12 sm:py-2 sm:text-sm">
         <Megaphone size={16} aria-hidden className="hidden shrink-0 text-accent-300 sm:block" />
-        <p className="leading-snug">{text}</p>
+        <p className="min-w-0 truncate leading-snug" title={text}>
+          {text}
+        </p>
       </div>
       <button
         type="button"
         onClick={() => dismiss(text)}
         aria-label="Hinweis schließen"
-        className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
+        className="absolute right-0.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
       >
         <X size={16} aria-hidden />
       </button>
@@ -117,18 +122,19 @@ function CartButton() {
   return (
     <Link
       to="/warenkorb"
-      className="group relative flex h-11 items-center gap-2.5 rounded-xl bg-brand-700 pl-3 pr-4 text-white shadow-sm shadow-brand-900/15 transition-colors hover:bg-brand-800"
-      aria-label={`Warenkorb, ${summary.count} Artikel`}
+      className="group relative flex h-11 shrink-0 items-center gap-3.5 rounded-xl bg-brand-700 pl-3 pr-4 text-white shadow-sm shadow-brand-900/15 transition-colors hover:bg-brand-800"
+      aria-label={`Warenkorb, ${summary.count} Artikel, ${formatEuro(summary.itemsTotal)}`}
     >
       <span className="relative">
         <ShoppingCart size={20} aria-hidden />
         {summary.count > 0 ? (
-          <span className="absolute -right-2.5 -top-2.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-500 px-1 text-[11px] font-bold text-brand-950 ring-2 ring-brand-700 tabular-nums">
+          // an der rechten oberen Ecke des Symbols; die Lücke zum Text ist breiter als der Überstand
+          <span className="absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent-500 px-1 text-[10.5px] font-bold leading-none text-brand-950 ring-2 ring-brand-700 tabular-nums">
             {summary.count > 99 ? '99+' : summary.count}
           </span>
         ) : null}
       </span>
-      <span className="flex flex-col leading-tight">
+      <span className="flex flex-col leading-tight" aria-hidden>
         <span className="text-[11px] font-medium text-white/70">Warenkorb</span>
         <span className="text-sm font-bold tabular-nums">{formatEuro(summary.itemsTotal)}</span>
       </span>
@@ -151,16 +157,16 @@ function DesktopNav() {
   const now = useNow(60_000);
   const state = openState(settings.openingHours, now);
   return (
-    <div className="hidden border-t border-slate-100 lg:block">
-      <div className="mx-auto flex h-12 max-w-7xl items-center justify-between gap-6 px-8">
-        <nav aria-label="Hauptnavigation" className="-ml-3 flex items-center gap-1">
+    <div className="hidden border-t border-slate-100 md:block">
+      <div className="mx-auto flex h-12 max-w-7xl items-center justify-between gap-4 px-6 lg:gap-6 lg:px-8">
+        <nav aria-label="Hauptnavigation" className="-ml-3 flex min-w-0 items-center gap-0.5 lg:gap-1">
           {NAV.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
               className={({ isActive }) =>
                 cn(
-                  'relative flex h-12 items-center gap-1.5 px-3 text-[15px] font-semibold transition-colors',
+                  'relative flex h-12 shrink-0 items-center gap-1.5 px-2.5 text-[15px] font-semibold transition-colors lg:px-3',
                   isActive ? 'text-brand-700 after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-brand-700' : 'text-slate-600 hover:text-slate-900',
                 )
               }
@@ -174,35 +180,36 @@ function DesktopNav() {
               to="/business"
               className={({ isActive }) =>
                 cn(
-                  'ml-2 flex h-9 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold transition-colors',
+                  'ml-2 flex h-9 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors lg:px-3.5',
                   isActive ? 'bg-brand-700 text-white' : 'bg-brand-50 text-brand-800 hover:bg-brand-100',
                 )
               }
             >
               <Building2 size={16} aria-hidden />
-              Geschäftskunden-Portal
+              <span className="lg:hidden">Portal</span>
+              <span className="hidden lg:inline">Geschäftskunden-Portal</span>
             </NavLink>
           ) : null}
           {role === 'admin' || role === 'driver' ? (
             <Link
               to={role === 'admin' ? '/admin' : '/fahrer'}
-              className="ml-2 flex h-9 items-center gap-2 rounded-xl bg-accent-100 px-3.5 text-sm font-semibold text-accent-900 hover:bg-accent-200"
+              className="ml-2 flex h-9 shrink-0 items-center gap-2 rounded-xl bg-accent-100 px-3.5 text-sm font-semibold text-accent-900 hover:bg-accent-200"
             >
               {role === 'admin' ? <LayoutDashboard size={16} aria-hidden /> : <Truck size={16} aria-hidden />}
               {role === 'admin' ? 'Markt-Dashboard' : 'Fahrer-App'}
             </Link>
           ) : null}
         </nav>
-        <div className="flex items-center gap-5 text-[13px] text-slate-500">
-          <span className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-5 text-[13px] text-slate-500">
+          <span className={cn('items-center gap-2 whitespace-nowrap', role === 'business' || role === 'admin' || role === 'driver' ? 'hidden lg:flex' : 'flex')}>
             <span className={cn('h-2 w-2 rounded-full', state.open ? 'bg-emerald-500' : 'bg-slate-300')} aria-hidden />
             {state.text}
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="hidden items-center gap-1.5 xl:flex">
             <Truck size={15} aria-hidden className="text-slate-400" />
             Lieferung in Garching &amp; Umgebung
           </span>
-          <a href={telHref(settings.phone)} className="flex items-center gap-1.5 font-semibold text-slate-700 hover:text-brand-700">
+          <a href={telHref(settings.phone)} className="hidden min-h-10 items-center gap-1.5 whitespace-nowrap font-semibold text-slate-700 hover:text-brand-700 lg:flex">
             <Phone size={15} aria-hidden className="text-slate-400" />
             {settings.phone}
           </a>
@@ -217,28 +224,31 @@ function DesktopNav() {
 function ShopHeader() {
   const [mobileSearch, setMobileSearch] = useState(false);
   const location = useLocation();
+  const onLogoClick = useDemoTripleTap();
   useEffect(() => setMobileSearch(false), [location.pathname]);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 pt-safe backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:h-[4.5rem] lg:gap-8 lg:px-8">
-        <Link to="/" aria-label="Zur Startseite" className="-ml-1 flex shrink-0 items-center rounded-xl p-1">
+    // deckender Hintergrund: keine „Geisterbilder“ darunter liegender Inhalte beim Scrollen
+    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white pt-safe">
+      <ConnectionBanner />
+      <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6 md:h-16 md:gap-5 lg:h-[4.5rem] lg:gap-8 lg:px-8">
+        <Link to="/" aria-label="Zur Startseite" onClick={onLogoClick} className="-ml-1 flex shrink-0 items-center rounded-xl p-1">
           <Logo className="h-9 lg:h-11" />
         </Link>
-        <SearchField className="hidden max-w-xl flex-1 lg:block" />
+        <SearchField className="hidden max-w-xl flex-1 md:block" />
         <div className="ml-auto flex items-center gap-1 lg:gap-2">
-          <IconButton icon={Search} label="Suchen" className="lg:hidden" onClick={() => setMobileSearch((v) => !v)} aria-expanded={mobileSearch} />
+          <IconButton icon={Search} label="Suchen" className="md:hidden" onClick={() => setMobileSearch((v) => !v)} aria-expanded={mobileSearch} />
           <NotificationBell />
-          <div className="hidden lg:block">
+          <div className="hidden md:block">
             <AccountMenu />
           </div>
-          <div className="hidden lg:block">
+          <div className="hidden md:block">
             <CartButton />
           </div>
         </div>
       </div>
       {mobileSearch ? (
-        <div className="border-t border-slate-100 px-4 py-2.5 animate-fade-in lg:hidden">
+        <div className="border-t border-slate-100 px-4 py-2.5 animate-fade-in md:hidden">
           <SearchField autoFocus onDone={() => setMobileSearch(false)} />
         </div>
       ) : null}
@@ -284,7 +294,9 @@ function MobileTabBar() {
   return (
     <nav
       aria-label="Schnellnavigation"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/95 pb-safe shadow-bar backdrop-blur-md lg:hidden"
+      // data-tabbar: setzt per CSS (:has) die Höhe --tabbar-h für Footer, Aktionsleisten, Toasts und Demo-Pille
+      data-tabbar=""
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white pb-safe shadow-bar md:hidden"
     >
       <ul className="mx-auto flex max-w-lg">
         {tabs.map((t) => {
@@ -327,7 +339,8 @@ export function ShopLayout() {
       <AnnouncementBar />
       <ShopHeader />
       <main id="main" className="mx-auto w-full max-w-7xl flex-1 px-4 pt-5 sm:px-6 sm:pt-8 lg:px-8">
-        <Suspense fallback={<PageLoader />}>
+        {/* Ladeanzeige füllt den Bildschirm; der Footer bleibt währenddessen ausgeblendet (kein Layout-Sprung) */}
+        <Suspense fallback={<PageLoader className="min-h-[calc(100dvh-12rem)]" />}>
           <Outlet />
         </Suspense>
       </main>

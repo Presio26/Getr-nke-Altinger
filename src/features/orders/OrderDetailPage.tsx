@@ -5,10 +5,12 @@ import {
   ClipboardList,
   ExternalLink,
   FileText,
+  Home,
   LayoutDashboard,
   LifeBuoy,
   Mail,
   MapPinned,
+  PackageSearch,
   Phone,
   Receipt,
   RotateCcw,
@@ -22,6 +24,7 @@ import { formatDate, formatTime, FULFILLMENT_LABEL } from '@shared/format';
 import { api } from '@/api/client';
 import { qk, useApiMutation, useDepositTypes, useOrder, useProductMap, useSettings } from '@/api/hooks';
 import { useSession } from '@/stores/session';
+import { cn } from '@/lib/cn';
 import { useDriverPosition } from '@/stores/positions';
 import { telHref } from '@/components/layout/Footer';
 import {
@@ -30,6 +33,7 @@ import {
   Card,
   CardHeader,
   ConfirmModal,
+  EmptyState,
   ErrorState,
   Notice,
   OrderStatusBadge,
@@ -41,7 +45,7 @@ import {
 import { OrderLinesList } from './components/OrderLinesList';
 import { TotalsBlock } from './components/TotalsBlock';
 import { TrackingMap } from './components/TrackingMap';
-import { LivePanel } from './components/LivePanel';
+import { LivePanel, LiveStrip } from './components/LivePanel';
 import { PickupPanel } from './components/PickupPanel';
 import { SuccessBanner } from './components/SuccessBanner';
 import { RatingCard } from './components/RatingCard';
@@ -62,7 +66,7 @@ const CANCEL_REASONS = [
 
 function DetailSkeleton() {
   return (
-    <div className="mx-auto max-w-6xl" aria-busy>
+    <div aria-busy>
       <Skeleton className="mb-2 h-8 w-64" />
       <Skeleton className="mb-7 h-5 w-48" />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -94,52 +98,47 @@ function LiveSection({ order }: { order: Order }) {
     <section aria-label="Live-Verfolgung" className="mb-6 lg:mb-8">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6">
         <div className="-mx-4 sm:mx-0">
-          <div className="relative h-[52dvh] min-h-[320px] overflow-hidden bg-slate-100 sm:rounded-2xl sm:shadow-card sm:ring-1 sm:ring-slate-200/70 lg:h-[560px]">
-            {home ? (
-              <TrackingMap
-                className="h-full"
-                home={home}
-                homeLabel={`${home.street} · Ihre Lieferadresse`}
-                driver={t?.driver ? { position: driverOnRoad ? livePos : undefined, color: t.driver.color, name: t.driver.name } : undefined}
-                route={t?.tour?.routeToCustomer}
-                extraFit={driverOnRoad ? undefined : settings.location}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">Keine Lieferadresse hinterlegt.</div>
-            )}
-            {driverOnRoad && (eta || order.arrivedAt) ? (
-              <div className="pointer-events-none absolute bottom-4 left-3 z-[500] max-w-[62%] rounded-2xl bg-white/95 px-3.5 py-2 shadow-pop ring-1 ring-slate-200 backdrop-blur lg:hidden" aria-hidden>
-                {order.arrivedAt || eta?.minutes === 0 ? (
-                  <p className="text-[15px] font-bold leading-tight text-emerald-700">{t?.driver?.name.split(' ')[0] ?? 'Ihr Fahrer'} ist da!</p>
-                ) : eta ? (
-                  <>
-                    <p className="text-[15px] font-bold leading-tight text-slate-900">
-                      in ca. <span className="tabular-nums">{eta.minutes}</span> Min.
-                    </p>
-                    <p className="truncate text-xs text-slate-500">gegen {formatTime(eta.arrival)} Uhr</p>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="pointer-events-none absolute right-3 top-3 z-[500] flex items-center gap-2 rounded-full bg-white/95 px-3 py-1.5 text-[13px] font-semibold text-slate-700 shadow-card ring-1 ring-slate-200">
-              {driverOnRoad ? (
-                <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="absolute inset-0 animate-ping rounded-full bg-red-400/70" />
-                    <span className="relative h-2.5 w-2.5 rounded-full bg-red-500" />
-                  </span>
-                  Live-Position
-                </>
+          <div className="overflow-hidden sm:rounded-2xl sm:shadow-card sm:ring-1 sm:ring-slate-200/70">
+            {/* Mobil: Ankunft, nächster Stopp und Fahrer im ersten Bild – direkt über der Karte */}
+            <LiveStrip order={order} tracking={t} eta={eta} loading={tracking.isLoading} className="border-y border-slate-200/70 sm:border-t-0 lg:hidden" />
+            <div className="relative h-[55dvh] min-h-[300px] bg-slate-100 lg:h-[560px]">
+              {home ? (
+                <TrackingMap
+                  className="h-full"
+                  home={home}
+                  homeLabel={`${home.street} · Ihre Lieferadresse`}
+                  driver={t?.driver ? { position: driverOnRoad ? livePos : undefined, color: t.driver.color, name: t.driver.name } : undefined}
+                  route={t?.tour?.routeToCustomer}
+                  extraFit={driverOnRoad ? undefined : settings.location}
+                />
               ) : (
-                <>
-                  <Truck size={14} aria-hidden className="text-brand-700" />
-                  Verladen – Abfahrt in Kürze
-                </>
+                <div className="flex h-full items-center justify-center text-sm text-slate-500">Keine Lieferadresse hinterlegt.</div>
               )}
+              <div
+                className={cn(
+                  'pointer-events-none absolute right-3 top-3 z-[500] items-center gap-2 rounded-full bg-white/95 px-3 py-1.5 text-[13px] font-semibold text-slate-700 shadow-card ring-1 ring-slate-200',
+                  driverOnRoad ? 'flex' : 'hidden lg:flex',
+                )}
+              >
+                {driverOnRoad ? (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="absolute inset-0 animate-ping rounded-full bg-red-400/70" />
+                      <span className="relative h-2.5 w-2.5 rounded-full bg-red-500" />
+                    </span>
+                    Live-Position
+                  </>
+                ) : (
+                  <>
+                    <Truck size={14} aria-hidden className="text-brand-700" />
+                    Verladen – Abfahrt in Kürze
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
-        <LivePanel order={order} tracking={t} eta={eta} loading={tracking.isLoading} />
+        <LivePanel order={order} tracking={t} eta={eta} loading={tracking.isLoading} className="hidden lg:block" />
       </div>
     </section>
   );
@@ -195,21 +194,41 @@ export default function OrderDetailPage() {
 
   if (isLoading) return <DetailSkeleton />;
   if (error || !order) {
+    const notFound = !error || (error instanceof ApiError && (error.code === 'not_found' || error.code === 'forbidden'));
+    const listPath = isAdmin ? '/admin/bestellungen' : '/bestellungen';
     return (
-      <div className="mx-auto max-w-3xl">
-        <PageHeader title="Bestellung" back={isAdmin ? '/admin/bestellungen' : '/bestellungen'} />
-        <Card>
-          <ErrorState
-            error={error ?? new Error('Die Bestellung wurde nicht gefunden.')}
-            onRetry={error instanceof ApiError && (error.code === 'not_found' || error.code === 'forbidden') ? undefined : () => void refetch()}
-            action={
-              <ButtonLink to={isAdmin ? '/admin/bestellungen' : '/bestellungen'} variant="ghost" icon={ClipboardList}>
-                Zu den Bestellungen
-              </ButtonLink>
-            }
-          />
+      <>
+        <PageHeader title={notFound ? 'Bestellung nicht gefunden' : 'Bestellung'} back={listPath} />
+        <Card padding="none">
+          {notFound ? (
+            <EmptyState
+              icon={PackageSearch}
+              title="Diese Bestellung gibt es nicht – oder sie gehört zu einem anderen Konto"
+              description="Bitte prüfen Sie den Link. Ihre eigenen Bestellungen finden Sie jederzeit in der Übersicht."
+              action={
+                <>
+                  <ButtonLink to={listPath} icon={ClipboardList}>
+                    {isAdmin ? 'Zu den Bestellungen' : 'Zu meinen Bestellungen'}
+                  </ButtonLink>
+                  <ButtonLink to={isAdmin ? '/admin' : '/'} variant="outline" icon={Home}>
+                    {isAdmin ? 'Zum Dashboard' : 'Zur Startseite'}
+                  </ButtonLink>
+                </>
+              }
+            />
+          ) : (
+            <ErrorState
+              error={error}
+              onRetry={() => void refetch()}
+              action={
+                <ButtonLink to={listPath} variant="outline" icon={ClipboardList}>
+                  Zu den Bestellungen
+                </ButtonLink>
+              }
+            />
+          )}
         </Card>
-      </div>
+      </>
     );
   }
 
@@ -232,7 +251,7 @@ export default function OrderDetailPage() {
   );
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <>
       {isNew ? <SuccessBanner order={order} onClose={closeBanner} /> : null}
 
       <PageHeader
@@ -243,7 +262,10 @@ export default function OrderDetailPage() {
           <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
             <OrderStatusBadge status={order.status} fulfillment={order.fulfillment} />
             <span>
-              {FULFILLMENT_LABEL[order.fulfillment]} · bestellt am {formatDate(order.createdAt, 'short')}, {formatTime(order.createdAt)} Uhr
+              {FULFILLMENT_LABEL[order.fulfillment]} ·{' '}
+              <span className="whitespace-nowrap">
+                bestellt {formatDate(order.createdAt, 'short').slice(0, 6)}, {formatTime(order.createdAt)} Uhr
+              </span>
             </span>
           </span>
         }
@@ -285,12 +307,10 @@ export default function OrderDetailPage() {
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-6">
-          {pickup && order.status !== 'cancelled' ? <PickupPanel order={order} /> : null}
+          {pickup && order.status !== 'cancelled' && !completed ? <PickupPanel order={order} /> : null}
 
-          {completed ? <RatingCard order={order} readOnly={isAdmin} /> : null}
-
-          {/* Status auf dem Handy früh zeigen */}
-          <div className="lg:hidden">{statusCard}</div>
+          {/* Status auf dem Handy früh zeigen (abgeschlossen: erst Beleg) */}
+          {!completed ? <div className="lg:hidden">{statusCard}</div> : null}
 
           <Card>
             <CardHeader
@@ -318,6 +338,11 @@ export default function OrderDetailPage() {
               />
             </div>
           </Card>
+
+          {completed ? <RatingCard order={order} readOnly={isAdmin} /> : null}
+          {/* Abgeholte Click-&-Collect-Bestellung: Abholcode nur noch eingeklappt */}
+          {pickup && completed ? <PickupPanel order={order} /> : null}
+          {completed ? <div className="lg:hidden">{statusCard}</div> : null}
 
           <EmptiesCard order={order} depositTypes={depositTypes} />
           {order.status === 'delivered' ? <ProofCard order={order} /> : null}
@@ -408,6 +433,6 @@ export default function OrderDetailPage() {
           </div>
         }
       />
-    </div>
+    </>
   );
 }

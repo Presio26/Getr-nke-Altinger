@@ -201,9 +201,9 @@ export default function CatalogPage() {
 
         {q ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className="inline-flex h-9 items-center gap-1.5 rounded-full bg-brand-50 pl-3 pr-1 font-semibold text-brand-800 ring-1 ring-inset ring-brand-200">
+            <span className="inline-flex h-10 items-center gap-1 rounded-full bg-brand-50 pl-3 pr-0.5 font-semibold text-brand-800 ring-1 ring-inset ring-brand-200">
               „{q}“
-              <button type="button" onClick={clearSearch} aria-label="Suche löschen" className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-brand-100">
+              <button type="button" onClick={clearSearch} aria-label="Suche löschen" className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-brand-100">
                 <X size={15} aria-hidden />
               </button>
             </span>
@@ -235,11 +235,17 @@ export default function CatalogPage() {
           </ul>
         </nav>
 
-        {/* Werkzeugleiste */}
-        <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 -mx-4 mt-3 border-b border-slate-200/70 bg-slate-50/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:mt-5 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
+        {/* Artikelzahl (mobil nicht klebend – spart Höhe beim Scrollen) */}
+        <p className="mt-3 text-sm text-slate-500 lg:hidden" aria-live="polite">
+          {isLoading ? 'Artikel werden geladen …' : isError ? 'Sortiment nicht verfügbar' : `${results.length} Artikel`}
+          {filterCount ? ` · ${filterCount} Filter aktiv` : ''}
+        </p>
+
+        {/* Werkzeugleiste: mobil eine einzige klebende Zeile (Filter, Sortierung, Ansicht) */}
+        <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 -mx-4 mt-2 border-b border-slate-200/70 bg-slate-50/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:mt-5 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
           <div className="flex items-center gap-2">
-            <Button variant="outline" icon={SlidersHorizontal} onClick={() => setSheetOpen(true)} className="lg:hidden">
-              Filter
+            <Button variant="outline" icon={SlidersHorizontal} onClick={() => setSheetOpen(true)} className="px-3 lg:hidden" aria-label={filterCount ? `Filter (${filterCount} aktiv)` : 'Filter'}>
+              <span className="max-[419px]:sr-only">Filter</span>
               {filterCount ? <span className="ml-0.5 rounded-full bg-brand-700 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white">{filterCount}</span> : null}
             </Button>
             <p className="hidden text-[15px] text-slate-600 lg:block" aria-live="polite">
@@ -260,17 +266,8 @@ export default function CatalogPage() {
                 containerClassName="min-w-0 flex-1 lg:w-56 lg:flex-none"
                 className="h-11 text-[15px]"
               />
-              <div className="hidden lg:block">
-                <ViewToggle view={view} onChange={setView} />
-              </div>
+              <ViewToggle view={view} onChange={setView} />
             </div>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3 lg:hidden">
-            <p className="text-sm text-slate-500" aria-live="polite">
-              {isLoading ? 'Artikel werden geladen …' : isError ? 'Sortiment nicht verfügbar' : `${results.length} Artikel`}
-              {filterCount ? ` · ${filterCount} Filter aktiv` : ''}
-            </p>
-            <ViewToggle view={view} onChange={setView} size="sm" />
           </div>
         </div>
 
