@@ -125,6 +125,11 @@ export function ZonesSection({ draft, update, v }: SectionProps) {
   return (
     <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)]">
       <div className="min-w-0 space-y-4 2xl:order-1">
+        {v.errors.zones ? (
+          <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
+            {v.errors.zones}
+          </p>
+        ) : null}
         {zones.map((z) => {
           const fee = parseEuro(z.fee);
           const free = parseEuro(z.freeFrom);

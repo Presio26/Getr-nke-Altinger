@@ -133,9 +133,9 @@ export function BroadcastModal({ open, onClose }: { open: boolean; onClose: () =
             value={audience}
             onChange={(v) => setAudience(v as Audience)}
             options={[
-              { value: 'all', title: 'Alle Kunden', icon: Users },
-              { value: 'b2c', title: 'Privatkunden', icon: User },
-              { value: 'b2b', title: 'Geschäftskunden', icon: Building2 },
+              { value: 'all', title: 'Alle', description: 'Privat & Geschäft', icon: Users },
+              { value: 'b2c', title: 'Privat', description: 'Privatkunden', icon: User },
+              { value: 'b2b', title: 'Geschäft', description: 'Geschäftskunden', icon: Building2 },
             ]}
           />
         </div>

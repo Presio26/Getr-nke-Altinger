@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Database, Pencil, Phone, Plus, RotateCcw, Server, Truck, Wifi } from 'lucide-react';
-import type { Driver, DriverStatus } from '@shared/types';
+import type { Driver, DriverStatus, StoreSettings } from '@shared/types';
 import { DRIVER_STATUS_LABEL, formatDateTime } from '@shared/format';
 import { api } from '@/api/client';
 import { qk, useApiMutation, useBootstrap, useBootstrapActions } from '@/api/hooks';
@@ -170,9 +170,9 @@ export function DriversSection() {
 }
 
 /** Demo: Betriebsmodus anzeigen, Demo-Daten zurücksetzen */
-export function DemoSection({ onReset }: { onReset: () => void }) {
+export function DemoSection({ onReset }: { onReset: (settings: StoreSettings) => void }) {
   const bootstrap = useBootstrap();
-  const { reload } = useBootstrapActions();
+  const { update } = useBootstrapActions();
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -181,9 +181,10 @@ export function DemoSection({ onReset }: { onReset: () => void }) {
     setBusy(true);
     try {
       await api.resetDemo();
-      await reload();
+      const fresh = await api.getBootstrap();
+      update(fresh);
+      onReset(fresh.settings);
       await qc.invalidateQueries();
-      onReset();
       toast.success('Demo-Daten wurden zurückgesetzt', { id: 'data-reset', description: 'Alle Ansichten zeigen wieder den Ausgangsstand.' });
       setConfirm(false);
     } catch (err) {

@@ -156,6 +156,7 @@ export function validateSettingsDraft(d: SettingsDraft): DraftValidation {
   slotChecks(v, d.deliverySlots, 'slot');
   slotChecks(v, d.pickupSlots, 'slot');
   // Liefergebiete
+  if (!d.zones.length) add(v, 'gebiete', 'zones', 'Ohne Liefergebiet kann nicht geliefert werden – bitte mindestens ein Gebiet anlegen.');
   const zipOwner = new Map<string, string>();
   for (const z of d.zones) {
     const label = z.name.trim() || 'Liefergebiet';

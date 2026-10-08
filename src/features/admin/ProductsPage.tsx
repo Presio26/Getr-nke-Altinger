@@ -272,8 +272,8 @@ export default function ProductsPage() {
         </AlertBanner>
       ) : null}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="flex flex-col gap-3 sm:flex-row lg:w-[34rem] lg:shrink-0">
+      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="flex flex-col gap-3 sm:flex-row xl:w-[34rem] xl:shrink-0">
           <SearchField value={q} onChange={(v) => setParam('q', v)} placeholder="Name, Marke, Artikelnummer, Lagerplatz …" className="flex-1" label="Artikel suchen" />
           <Select
             aria-label="Kategorie"
@@ -331,14 +331,14 @@ export default function ProductsPage() {
           {/* Tabelle ab Tablet */}
           {wide ? (
             <div>
-              <Table>
+              <Table className="[&_td:first-child]:pl-4 [&_td]:px-3 [&_th:first-child]:pl-4 [&_th]:px-3">
                 <THead>
                   <tr>
                     <SortTH label="Artikel" sortKey="name" sort={sort} onSort={onSort} />
                     <SortTH label="Kategorie" sortKey="category" sort={sort} onSort={onSort} className="hidden xl:table-cell" />
                     <TH className="hidden 2xl:table-cell">Gebinde</TH>
                     <SortTH label="Preis brutto" sortKey="price" sort={sort} onSort={onSort} align="right" />
-                    <TH className="hidden lg:table-cell">Angebot</TH>
+                    <TH className="hidden xl:table-cell">Angebot</TH>
                     <SortTH label="Bestand" sortKey="stock" sort={sort} onSort={onSort} />
                     <TH className="text-center">Aktiv</TH>
                     <TH className="w-8">
@@ -350,7 +350,7 @@ export default function ProductsPage() {
                   {filtered.map((p) => (
                     <TR key={p.id} onClick={() => openEdit(p)} className={cn(!p.active && 'bg-slate-50/70')}>
                       <TD className="py-2.5">
-                        <div className={cn('flex min-w-0 max-w-[24rem] items-center gap-3', !p.active && 'opacity-60')}>
+                        <div className={cn('flex min-w-0 max-w-[15rem] items-center gap-3 xl:max-w-[20rem] 2xl:max-w-[24rem]', !p.active && 'opacity-60')}>
                           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-50">
                             <ProductImage product={p} size={44} />
                           </span>
@@ -371,8 +371,13 @@ export default function ProductsPage() {
                       <TD className="whitespace-nowrap text-right">
                         <Money cents={p.priceGross} className="font-semibold text-slate-900" />
                         <p className="text-xs text-slate-500">{p.isRental ? 'pro Veranstaltung' : basePrice(p, p.priceGross)}</p>
+                        {p.offer && isOfferValid(p.offer, today) ? (
+                          <Badge tone="accent" icon={Tag} className="mt-1 xl:hidden">
+                            {formatEuro(p.offer.priceGross)}
+                          </Badge>
+                        ) : null}
                       </TD>
-                      <TD className="hidden lg:table-cell">
+                      <TD className="hidden xl:table-cell">
                         <OfferCell product={p} today={today} />
                       </TD>
                       <TD>

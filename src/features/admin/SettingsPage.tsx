@@ -145,7 +145,12 @@ export default function SettingsPage() {
           {tab === 'gutscheine' ? <CouponsSection draft={draft} update={updateDraft} v={v} /> : null}
           {tab === 'fahrer' ? <DriversSection /> : null}
           {tab === 'demo' ? (
-            <DemoSection onReset={discard} />
+            <DemoSection
+              onReset={(fresh) => {
+                setBase(fresh);
+                setDraft(fromSettings(fresh));
+              }}
+            />
           ) : null}
 
           {DRAFT_TABS.has(tab) && !dirty ? (

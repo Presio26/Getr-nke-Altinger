@@ -227,7 +227,7 @@ export default function StatsPage() {
                       <tr>
                         <th className="w-10 py-2.5 pl-4 pr-2 sm:pl-5">#</th>
                         <th className="px-2 py-2.5">Artikel</th>
-                        <th className="px-2 py-2.5 text-right">Menge</th>
+                        <th className="hidden px-2 py-2.5 text-right sm:table-cell">Menge</th>
                         <th className="px-2 py-2.5 text-right">Umsatz</th>
                         <th className="hidden py-2.5 pl-2 pr-5 sm:table-cell">Anteil</th>
                       </tr>
@@ -250,14 +250,17 @@ export default function StatsPage() {
                                 {product ? (
                                   <Link to={`/admin/sortiment/${encodeURIComponent(product.id)}`} className="min-w-0 max-w-[15rem] hover:text-brand-700">
                                     <span className="block truncate font-medium text-slate-900">{p.name}</span>
-                                    <span className="block truncate text-xs text-slate-500">{product.packaging}</span>
+                                    <span className="block truncate text-xs text-slate-500">
+                                      {product.packaging}
+                                      <span className="sm:hidden"> · {formatCount(p.qty)} Geb.</span>
+                                    </span>
                                   </Link>
                                 ) : (
                                   <span className="font-medium text-slate-900">{p.name}</span>
                                 )}
                               </div>
                             </td>
-                            <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-slate-700">{formatCount(p.qty)}</td>
+                            <td className="hidden whitespace-nowrap px-2 py-2 text-right tabular-nums text-slate-700 sm:table-cell">{formatCount(p.qty)}</td>
                             <td className="whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums text-slate-900">{formatEuro(p.revenue)}</td>
                             <td className="hidden py-2 pl-2 pr-5 sm:table-cell">
                               <div className="flex items-center gap-2">
@@ -288,7 +291,7 @@ export default function StatsPage() {
                   subtitle="Diese Artikel sollten nachbestellt werden"
                   icon={AlertTriangle}
                   action={
-                    <Link to="/admin/sortiment?meldebestand=1" className="text-sm font-semibold text-brand-700 hover:underline">
+                    <Link to="/admin/sortiment?meldebestand=1" className="hidden text-sm font-semibold text-brand-700 hover:underline sm:inline">
                       Im Sortiment öffnen
                     </Link>
                   }
@@ -313,6 +316,9 @@ export default function StatsPage() {
                     </li>
                   ))}
                 </ul>
+                <Link to="/admin/sortiment?meldebestand=1" className="mt-4 block text-center text-sm font-semibold text-brand-700 hover:underline sm:hidden">
+                  Im Sortiment öffnen
+                </Link>
               </Card>
             ) : null}
             </div>

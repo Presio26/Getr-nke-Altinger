@@ -75,13 +75,13 @@ function RevenueTooltip({ active, payload }: TooltipProps<number, string>) {
 
 export function RevenueByDayChart({ data, days }: { data: DayRow[]; days: number }) {
   const tick = (d: string) => (days <= 7 ? `${WEEKDAY_SHORT[weekdayOf(d)]} ${d.slice(8, 10)}.${d.slice(5, 7)}.` : `${d.slice(8, 10)}.${d.slice(5, 7)}.`);
-  const interval = days <= 7 ? 0 : days <= 30 ? 3 : 13;
+  const interval = days <= 7 ? 0 : 'preserveStartEnd';
   return (
     <div className="h-72 w-full sm:h-80" role="img" aria-label="Umsatz je Tag, gestapelt nach Privat- und Geschäftskunden">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }} barCategoryGap={days <= 7 ? '30%' : '18%'}>
           <CartesianGrid vertical={false} stroke={GRID} />
-          <XAxis dataKey="date" tickFormatter={tick} tick={AXIS} tickLine={false} axisLine={{ stroke: GRID }} interval={interval} minTickGap={8} />
+          <XAxis dataKey="date" tickFormatter={tick} tick={AXIS} tickLine={false} axisLine={{ stroke: GRID }} interval={interval} minTickGap={18} />
           <YAxis tickFormatter={euroAxis} tick={AXIS} tickLine={false} axisLine={false} width={64} />
           <Tooltip content={<RevenueTooltip />} cursor={{ fill: 'rgba(148,163,184,0.12)' }} />
           <Bar dataKey="b2c" name="Privatkunden" stackId="rev" fill={SERIES.b2c} maxBarSize={24} stroke="#fff" strokeWidth={1} isAnimationActive={false} />
