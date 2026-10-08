@@ -360,6 +360,8 @@ export interface StoreSettings {
   coupons: Coupon[];
   /** Hinweisbanner auf der Startseite (optional) */
   announcement?: string;
+  /** Demo: neue Bestellungen nach wenigen Sekunden automatisch bestätigen (Default false = Markt bestätigt selbst) */
+  demoAutoConfirm?: boolean;
 }
 
 // ───────────────────────────── Bestellungen ─────────────────────────────
@@ -435,6 +437,15 @@ export interface Totals {
   vat: number;
   /** Endbetrag brutto = itemsGross − discount + deposit − depositRefund + deliveryFee + carryFee (kann bei viel Leergut negativ sein = Auszahlung) */
   total: number;
+  /** MwSt.-Aufschlüsselung je Satz (Netto/MwSt. inkl. Pfand, Gebühren, abzgl. Gutschriften) – für Kasse und Rechnung */
+  vatBreakdown?: VatBreakdownLine[];
+}
+
+export interface VatBreakdownLine {
+  /** MwSt.-Satz in Prozent */
+  rate: number;
+  net: number;
+  vat: number;
 }
 
 export interface CheckoutItem {
@@ -522,8 +533,13 @@ export interface DeliveryProofInput {
   note?: string;
 }
 
+/** Herkunft einer Bestellung (für Auswertung „Telefon-Entlastung“) */
+export type OrderSource = 'app' | 'phone' | 'subscription';
+
 export interface Order {
   id: ID;
+  /** Herkunft: App/Web (Default), telefonisch vom Markt erfasst, aus Abo/Dauerauftrag */
+  source?: OrderSource;
   /** Bestellnummer für Menschen, z. B. "AL-24851" */
   number: string;
   customerId: ID;
@@ -622,6 +638,8 @@ export interface Invoice {
   gross: number;
   status: InvoiceStatus;
   paidAt?: ISODate;
+  /** MwSt.-Aufschlüsselung je Satz */
+  vatBreakdown?: VatBreakdownLine[];
 }
 
 // ───────────────────────────── Fahrer & Touren ─────────────────────────────
@@ -677,6 +695,8 @@ export interface TourSimulation {
   dwellUntil?: ISODate;
   /** Zeitpunkt des letzten Simulationsschritts (für zeitbasierten Fortschritt) */
   lastTickAt?: ISODate;
+  /** Diese Aufträge werden auch bei autoComplete NICHT automatisch zugestellt (Demo: Fahrer schließt sie live ab) */
+  manualOrderIds?: ID[];
 }
 
 export interface Tour {
@@ -759,6 +779,8 @@ export interface AppNotification {
 
 export interface Stats {
   days: number;
+  /** Bestellungen nach Herkunft (Anzahl) – zeigt die Entlastung von Telefon/Fax */
+  bySource?: { app: number; phone: number; subscription: number };
   revenueByDay: { date: DayString; b2c: number; b2b: number; orders: number }[];
   revenueTotal: number;
   ordersTotal: number;

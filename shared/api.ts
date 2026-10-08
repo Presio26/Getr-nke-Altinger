@@ -68,6 +68,8 @@ export interface SimulationOptions {
   speedFactor?: number;
   /** Stopps automatisch zustellen, Default true */
   autoComplete?: boolean;
+  /** Aufträge, die trotz autoComplete manuell vom Fahrer abgeschlossen werden (Demo: Annas Stopp) */
+  manualOrderIds?: ID[];
 }
 
 export interface RentalAvailability {
@@ -174,7 +176,7 @@ export interface Api {
   /** Stopp-Reihenfolge optimieren (Nearest-Neighbor + 2-Opt) und Route neu berechnen */
   adminOptimizeTour(tourId: ID): Promise<Tour>;
   /** Offene Lieferungen eines Tages automatisch auf verfügbare Fahrer verteilen */
-  adminAutoPlanTours(date: DayString): Promise<TourWithOrders[]>;
+  adminAutoPlanTours(date: DayString, options?: { preview?: boolean }): Promise<TourWithOrders[]>;
   adminListCustomers(): Promise<Customer[]>;
   adminGetCustomer(customerId: ID): Promise<{ customer: Customer; orders: Order[]; invoices: Invoice[]; subscriptions: Subscription[]; users: User[] }>;
   adminSaveCustomer(customer: Customer): Promise<Customer>;
@@ -191,6 +193,12 @@ export interface Api {
   adminListSubscriptions(): Promise<Subscription[]>;
   /** fällige Abos/Daueraufträge bis einschließlich Datum in Bestellungen umwandeln */
   adminRunSubscriptions(untilDate: DayString): Promise<Order[]>;
+  /** Abo/Dauerauftrag durch den Markt pausieren/fortsetzen */
+  adminSetSubscriptionActive(subscriptionId: ID, active: boolean): Promise<Subscription>;
+  /** Telefonbestellung: Preisberechnung im Namen eines Kunden */
+  adminQuote(customerId: ID, input: CheckoutInput): Promise<Quote>;
+  /** Telefonbestellung: Bestellung im Namen eines Kunden anlegen (source 'phone') */
+  adminPlaceOrder(customerId: ID, input: CheckoutInput): Promise<Order>;
   /** Benachrichtigung an Kunden senden (z. B. Aktion) */
   adminBroadcast(input: { title: string; body: string; audience: 'all' | 'b2c' | 'b2b'; link?: string }): Promise<number>;
 }

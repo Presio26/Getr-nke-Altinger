@@ -21,6 +21,7 @@ import { orderHandlers } from './handlers/orders';
 import { driverHandlers } from './handlers/driver';
 import { tourHandlers } from './handlers/tours';
 import { adminHandlers } from './handlers/admin';
+import { pendingHandlers } from './handlers/pending';
 import { invoiceHandlers } from './handlers/invoices';
 import { subscriptionHandlers } from './handlers/subscriptions';
 import { notificationHandlers } from './handlers/notifications';
@@ -136,6 +137,7 @@ function buildHandlers(e: Engine): CoreHandlers {
     ...driverHandlers(e),
     ...tourHandlers(e),
     ...adminHandlers(e),
+    ...pendingHandlers(e),
   };
 }
 
