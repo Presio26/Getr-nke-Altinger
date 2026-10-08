@@ -18,17 +18,32 @@ Eine Oberfläche für alle Geräte: iPhone, Android, Tablet und Desktop – ohne
 
 ## Inhalt
 
-1. [Funktionen je Rolle](#funktionen-je-rolle)
-2. [Schnellstart](#schnellstart)
-3. [Demo-Zugänge](#demo-zugänge)
-4. [Betriebsmodi: Server und Lokal](#betriebsmodi-server-und-lokal)
-5. [Konfiguration](#konfiguration)
-6. [Auf dem iPhone installieren](#auf-dem-iphone-installieren)
-7. [Projektstruktur](#projektstruktur)
-8. [Tests](#tests)
-9. [Deployment (Kurzfassung)](#deployment-kurzfassung)
-10. [Weitere Unterlagen](#weitere-unterlagen)
-11. [Hinweise](#hinweise)
+1. [Screenshots](#screenshots)
+2. [Funktionen je Rolle](#funktionen-je-rolle)
+3. [Schnellstart](#schnellstart)
+4. [Demo-Zugänge](#demo-zugänge)
+5. [Betriebsmodi: Server und Lokal](#betriebsmodi-server-und-lokal)
+6. [Konfiguration](#konfiguration)
+7. [Auf dem iPhone installieren](#auf-dem-iphone-installieren)
+8. [Projektstruktur](#projektstruktur)
+9. [Tests](#tests)
+10. [Deployment (Kurzfassung)](#deployment-kurzfassung)
+11. [Weitere Unterlagen](#weitere-unterlagen)
+12. [Hinweise](#hinweise)
+
+## Screenshots
+
+Alle Bilder liegen in [`docs/screenshots/`](docs/screenshots/) (iPhone 390 × 844 und Desktop 1440 × 900, Demo-Daten).
+
+| Kundin (iPhone) | Live-Tracking (iPhone) | Fahrer-Stopp (iPhone) |
+|---|---|---|
+| <img src="docs/screenshots/01-iphone-start-anna.png" width="240" alt="Startseite für angemeldete Kundin"> | <img src="docs/screenshots/05-iphone-live-tracking.png" width="240" alt="Live-Lieferverfolgung"> | <img src="docs/screenshots/07-iphone-fahrer-stopp.png" width="240" alt="Fahrer-App: Stopp mit Altersprüfung"> |
+
+| Markt-Dashboard | Live-Karte |
+|---|---|
+| <img src="docs/screenshots/10-desktop-markt-dashboard.png" width="480" alt="Markt-Dashboard"> | <img src="docs/screenshots/11-desktop-markt-live-karte.png" width="480" alt="Live-Karte aller Fahrer"> |
+| **Tourenplanung** | **B2B-Schnellbestellung** |
+| <img src="docs/screenshots/13-desktop-markt-touren.png" width="480" alt="Tourenplanung"> | <img src="docs/screenshots/21-desktop-b2b-schnellbestellung.png" width="480" alt="B2B-Schnellbestellung"> |
 
 ---
 
