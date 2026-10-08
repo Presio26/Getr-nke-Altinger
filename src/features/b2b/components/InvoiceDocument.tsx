@@ -5,7 +5,7 @@ import { formatDate, formatEuro, formatNumber, PAYMENT_METHOD_LABEL } from '@sha
 import { diffDays } from '@shared/time';
 import { Logo } from '@/components/brand/Logo';
 import { cn } from '@/lib/cn';
-import { emptiesLines } from '../lib/b2b';
+import { buildInvoiceLayout } from '../lib/invoiceLayout';
 
 /** Bankverbindung der Demo – bewusst als Platzhalter gekennzeichnet */
 export const DEMO_IBAN = 'DE00 0000 0000 0000 0000 00 (Demo)';
@@ -23,66 +23,41 @@ export interface InvoiceDocumentProps {
   orderHref?: (order: Order) => string;
 }
 
-/** MwSt. je Steuersatz – exakt wie der Core rechnet, Rundungsrest beim größten Satz (Summe = invoice.vat) */
-function vatByRate(orders: readonly Order[], total: number): { rate: number; vat: number }[] {
-  const exact = new Map<number, number>();
-  for (const o of orders) {
-    const itemsGross = o.lines.reduce((s, l) => s + l.lineGross, 0);
-    const fees = o.totals.deliveryFee + o.totals.carryFee;
-    if (itemsGross > 0) {
-      const byRate = new Map<number, number>();
-      for (const l of o.lines) byRate.set(l.vatRate, (byRate.get(l.vatRate) ?? 0) + l.lineGross);
-      for (const [rate, gross] of byRate) {
-        const share = gross / itemsGross;
-        const base = gross - o.totals.discount * share + fees * share;
-        exact.set(rate, (exact.get(rate) ?? 0) + (base * rate) / (100 + rate));
-      }
-    } else if (fees > 0) {
-      exact.set(19, (exact.get(19) ?? 0) + (fees * 19) / 119);
-    }
-  }
-  const list = [...exact].map(([rate, v]) => ({ rate, vat: Math.round(v) })).sort((a, b) => b.rate - a.rate);
-  if (!list.length) return [{ rate: 19, vat: total }];
-  const diff = total - list.reduce((s, x) => s + x.vat, 0);
-  if (diff) {
-    const biggest = list.reduce((a, b) => (b.vat > a.vat ? b : a));
-    biggest.vat += diff;
-  }
-  return list.filter((x) => x.vat !== 0 || list.length === 1);
-}
-
 function deliveredOn(o: Order): string {
   return o.proof?.at ?? o.slot.date;
 }
+
 
 /** Druckfertige Rechnung (A4) mit Briefkopf, Positionen je Lieferschein und Zahlungshinweis */
 export function InvoiceDocument({ invoice, orders, customer, settings, productMap, depositTypes, variant = 'screen', orderHref }: InvoiceDocumentProps) {
   const print = variant === 'print';
   const b2b = customer.b2b;
   const billing = customer.addresses.find((a) => a.id === customer.defaultAddressId) ?? customer.addresses[0] ?? orders.find((o) => o.address)?.address;
-  const sorted = [...orders].sort((a, b) => deliveredOn(a).localeCompare(deliveredOn(b)) || a.number.localeCompare(b.number));
+  const layout = buildInvoiceLayout(invoice, orders, depositTypes);
+  const sorted = layout.notes.map((n) => n.order);
   const days = sorted.map((o) => deliveredOn(o).slice(0, 10)).sort();
   const period = days.length ? (days[0] === days[days.length - 1] ? formatDate(days[0], 'short') : `${formatDate(days[0], 'short')} – ${formatDate(days[days.length - 1], 'short')}`) : '—';
   const termDays = Math.max(0, diffDays(invoice.date, invoice.dueDate));
-
-  const linesNet = sorted.reduce((s, o) => s + o.lines.reduce((x, l) => x + l.lineNet, 0), 0);
-  const discountGross = sorted.reduce((s, o) => s + o.totals.discount, 0);
-  const feesGross = sorted.reduce((s, o) => s + o.totals.deliveryFee + o.totals.carryFee, 0);
-  const discountNet = Math.round((discountGross * 100) / 119);
-  const feesNet = Math.round((feesGross * 100) / 119);
-  const rounding = invoice.net - (linesNet - discountNet + feesNet);
-  const vats = vatByRate(sorted, invoice.vat);
   const allSepa = sorted.length > 0 && sorted.every((o) => o.paymentMethod === 'sepa');
   let pos = 0;
 
   const th = cn('whitespace-nowrap px-1.5 py-2 font-semibold text-slate-500', print ? 'text-[7.5pt] uppercase tracking-wide' : 'text-[11px] uppercase tracking-wide');
   const td = 'px-1.5 py-1.5';
+  /** Pfand-/Leergut-/Gebührenzeilen: kompakter */
+  const tdx = 'px-1.5 py-1';
   const hideNarrow = print ? '' : 'hidden sm:table-cell';
   /** Spaltenbreiten nur ab sm bzw. im Druck */
   const w = (cls: string) => (print ? cls : cls.split(' ').map((c) => `sm:${c}`).join(' '));
 
-  const totalRow = (label: ReactNode, value: string, opts: { strong?: boolean; muted?: boolean } = {}) => (
-    <div className={cn('flex items-baseline justify-between gap-6 py-1', opts.strong && 'mt-1 border-t-2 border-slate-900 pt-2 font-bold text-slate-900', opts.muted && 'text-slate-500')}>
+  const totalRow = (label: ReactNode, value: string, opts: { strong?: boolean; muted?: boolean; rule?: boolean } = {}) => (
+    <div
+      className={cn(
+        'flex items-baseline justify-between gap-6 py-1',
+        opts.strong && 'mt-1 border-t-2 border-slate-900 pt-2 font-bold text-slate-900',
+        opts.rule && 'mt-1 border-t border-slate-300 pt-1.5',
+        opts.muted && 'text-slate-500',
+      )}
+    >
       <dt>{label}</dt>
       <dd className={cn('tabular-nums', opts.strong ? (print ? 'text-[12pt]' : 'text-base') : '')}>{value}</dd>
     </div>
@@ -159,21 +134,34 @@ export function InvoiceDocument({ invoice, orders, customer, settings, productMa
 
       {/* Positionen je Lieferschein */}
       <div className="mt-6 space-y-5">
-        {sorted.map((o) => {
-          const lineNet = o.lines.reduce((s, l) => s + l.lineNet, 0);
-          const deposits = new Map<string, { label: string; qty: number; amount: number }>();
-          for (const l of o.lines) {
-            if (!l.depositUnit || !l.depositTypeId) continue;
-            const type = depositTypes.find((d) => d.id === l.depositTypeId);
-            const d = deposits.get(l.depositTypeId) ?? { label: type?.shortName ?? 'Pfand', qty: 0, amount: l.depositUnit };
-            d.qty += l.qty;
-            deposits.set(l.depositTypeId, d);
-          }
-          const empties = emptiesLines(o.proof?.emptiesCollected ?? o.emptiesReturn, depositTypes);
+        {layout.notes.map((note) => {
+          const o = note.order;
           const href = orderHref?.(o);
+          const subRow = (label: ReactNode, value: number, strong = false) => (
+            <tr className={cn('align-top', strong ? 'border-t border-slate-300 font-semibold text-slate-900' : 'border-t border-slate-200 text-slate-700')}>
+              {print ? (
+                <td className={cn(td, 'text-right')} colSpan={6}>
+                  {label}
+                </td>
+              ) : (
+                <>
+                  <td className={cn(td, '!pl-1 sm:hidden')}>{label}</td>
+                  <td className={cn(td, 'hidden text-right sm:table-cell')} colSpan={6}>
+                    {label}
+                  </td>
+                </>
+              )}
+              <td className={cn(td, 'whitespace-nowrap !pr-1 text-right tabular-nums')}>{formatEuro(value)}</td>
+            </tr>
+          );
           return (
-            <section key={o.id} className="break-inside-avoid-page">
-              <div className={cn('flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 rounded-lg bg-slate-100/80 px-3 py-2', print && 'text-[8.5pt]')}>
+            <section key={o.id} className={print ? undefined : 'break-inside-avoid-page'}>
+              <div
+                className={cn(
+                  'flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 rounded-lg bg-slate-100/80 px-3 py-2',
+                  print && 'break-after-avoid text-[8.5pt]',
+                )}
+              >
                 <p className="font-semibold text-slate-900">
                   Lieferschein{' '}
                   {href && !print ? (
@@ -194,13 +182,13 @@ export function InvoiceDocument({ invoice, orders, customer, settings, productMa
               <table className="mt-1 w-full border-collapse text-left">
                 <thead className="border-b border-slate-200">
                   <tr>
-                    <th scope="col" className={cn(th, w('w-10'), '!pl-1')}>
+                    <th scope="col" className={cn(th, w('w-10'), '!pl-1', hideNarrow)}>
                       Pos.
                     </th>
                     <th scope="col" className={cn(th, hideNarrow, w('w-[24mm]'))}>
                       Art.-Nr.
                     </th>
-                    <th scope="col" className={th}>
+                    <th scope="col" className={cn(th, !print && '!pl-1 sm:!pl-1.5')}>
                       Bezeichnung
                     </th>
                     <th scope="col" className={cn(th, hideNarrow, w('w-16'), 'text-right')}>
@@ -223,16 +211,16 @@ export function InvoiceDocument({ invoice, orders, customer, settings, productMa
                     const sku = productMap.get(l.productId)?.sku ?? '—';
                     return (
                       <tr key={l.productId} className="align-top">
-                        <td className={cn(td, '!pl-1 tabular-nums text-slate-500')}>{pos}</td>
+                        <td className={cn(td, '!pl-1 tabular-nums text-slate-500', hideNarrow)}>{pos}</td>
                         <td className={cn(td, 'whitespace-nowrap font-mono tabular-nums text-slate-500', hideNarrow, print ? 'text-[8pt]' : 'text-[12px]')}>{sku}</td>
-                        <td className={td}>
+                        <td className={cn(td, !print && '!pl-1 sm:!pl-1.5')}>
                           <span className="block font-medium text-slate-900">{l.name}</span>
                           <span className="block text-slate-500">
                             {l.packaging}
-                            {l.priceNote ? ` · ${l.priceNote.replace(/ %/g, '\u00a0%')}` : ''}
+                            {l.priceNote ? ` · ${l.priceNote.replace(/ %/g, ' %')}` : ''}
                             {!print ? (
                               <span className="block font-medium text-slate-600 sm:hidden">
-                                {formatNumber(l.qty)} × {formatEuro(l.unitNet)} netto
+                                {formatNumber(l.qty)} × {formatEuro(l.unitNet)} netto · {l.vatRate}&nbsp;% MwSt.
                               </span>
                             ) : null}
                           </span>
@@ -245,47 +233,70 @@ export function InvoiceDocument({ invoice, orders, customer, settings, productMa
                     );
                   })}
                 </tbody>
+                <tbody className={cn('border-t border-slate-200', print ? 'text-[8.5pt]' : 'text-[12.5px]')}>
+                  {note.extras.length ? subRow('Warenwert netto', note.goodsNet) : null}
+                  {note.extras.map((x) => (
+                    <tr key={x.key} className="align-top text-slate-600">
+                      <td className={cn(tdx, hideNarrow)} />
+                      <td className={cn(tdx, hideNarrow)} />
+                      <td className={cn(tdx, !print && '!pl-1 sm:!pl-1.5')}>
+                        <span className={cn('text-slate-800', !print && 'block sm:inline')}>
+                          {x.kind === 'deposit' ? `Pfand ${x.label}` : x.kind === 'refund' ? `Leergut-Rücknahme ${x.label}` : x.label}
+                        </span>
+                        {x.unitGross ? (
+                          <>
+                            <span className={cn('text-slate-500', !print && 'hidden sm:inline')}>
+                              {' '}
+                              <span className="whitespace-nowrap">à {formatEuro(x.unitGross)} brutto</span>
+                            </span>
+                            {!print ? (
+                              <span className="block text-slate-500 sm:hidden">
+                                {formatNumber(x.qty ?? 0)} × {formatEuro(x.unitGross)} brutto{x.rate ? ` · ${x.rate}\u00a0% MwSt.` : ''}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : null}
+                      </td>
+                      <td className={cn(tdx, hideNarrow, 'text-right tabular-nums')}>{x.qty ? formatNumber(x.qty) : ''}</td>
+                      <td className={cn(tdx, hideNarrow)} />
+                      <td className={cn(tdx, 'whitespace-nowrap text-right tabular-nums text-slate-500', hideNarrow)}>{x.rate ? `${x.rate} %` : ''}</td>
+                      <td className={cn(tdx, 'whitespace-nowrap !pr-1 text-right tabular-nums text-slate-900')}>{formatEuro(x.net)}</td>
+                    </tr>
+                  ))}
+                  {subRow(note.extras.length ? `Summe Lieferschein ${o.number} netto` : 'Warenwert netto', note.totalNet, true)}
+                </tbody>
               </table>
-              <div className={cn('mt-1 flex flex-col gap-0.5 border-t border-slate-200 pt-1.5 text-slate-600 sm:flex-row sm:items-start sm:justify-between sm:gap-6', print && '!flex-row justify-between gap-6 text-[8.5pt]')}>
-                <div className="min-w-0 space-y-0.5">
-                  {[...deposits.values()].map((d) => (
-                    <p key={`d-${d.label}`}>
-                      Pfand: {d.qty} × {d.label} à {formatEuro(d.amount)} = <span className="tabular-nums">{formatEuro(d.qty * d.amount)}</span>
-                    </p>
-                  ))}
-                  {empties.map((e) => (
-                    <p key={`e-${e.type.id}`}>
-                      Leergut-Rücknahme: {e.qty} × {e.type.shortName} = <span className="tabular-nums">{formatEuro(-e.value)}</span>
-                    </p>
-                  ))}
-                  {o.totals.deliveryFee + o.totals.carryFee > 0 ? <p>Liefer-/Servicegebühr brutto: {formatEuro(o.totals.deliveryFee + o.totals.carryFee)}</p> : null}
-                </div>
-                <p className="shrink-0 font-semibold text-slate-900">
-                  Warenwert netto <span className="ml-2 tabular-nums">{formatEuro(lineNet)}</span>
-                </p>
-              </div>
             </section>
           );
         })}
       </div>
 
-      {/* Summen */}
-      <section className={cn('mt-6 flex', print ? 'justify-end' : 'sm:justify-end')}>
-        <dl className={print ? 'w-[82mm]' : 'w-full sm:w-[82mm]'}>
-          {totalRow('Summe Positionen netto', formatEuro(linesNet))}
-          {discountGross ? totalRow('Rabatt netto', formatEuro(-discountNet)) : null}
-          {feesGross ? totalRow('Liefer-/Servicegebühren netto', formatEuro(feesNet)) : null}
-          {rounding ? totalRow('Rundungsausgleich', formatEuro(rounding), { muted: true }) : null}
-          <div className="my-1 border-t border-slate-200" />
-          {totalRow(<span className="font-semibold text-slate-900">Nettobetrag</span>, formatEuro(invoice.net))}
-          {vats.map((v) => (
-            <Fragment key={v.rate}>{totalRow(`zzgl. MwSt. ${v.rate} %`, formatEuro(v.vat))}</Fragment>
+      {/* Summen – alle Werte vom Core; netto + MwSt. = Rechnungsbetrag */}
+      <section className={cn('mt-6 flex break-inside-avoid', print ? 'justify-end' : 'sm:justify-end')}>
+        <dl className={print ? 'w-[92mm]' : 'w-full sm:w-[96mm]'}>
+          {totalRow('Warenwert netto', formatEuro(layout.goodsNet + layout.goodsAdjust))}
+          {layout.feesNet ? totalRow('Liefer-/Servicegebühren netto', formatEuro(layout.feesNet)) : null}
+          {layout.discountNet ? totalRow('Rabatt netto', formatEuro(-layout.discountNet)) : null}
+          {layout.deposit ? totalRow('Pfand netto', formatEuro(layout.deposit)) : null}
+          {layout.depositRefund ? totalRow('Leergut-Rücknahme netto', formatEuro(-layout.depositRefund)) : null}
+          {totalRow(<span className="font-semibold text-slate-900">Summe netto</span>, formatEuro(layout.subtotalNet), { rule: true })}
+          {layout.vat.map((v) => (
+            <Fragment key={v.rate}>
+              {totalRow(
+                <>
+                  zzgl. MwSt.{Number.isFinite(v.rate) ? ` ${v.rate} %` : ''}
+                  {v.base !== undefined && layout.vat.length > 1 ? <span className="text-slate-500"> auf {formatEuro(v.base)}</span> : null}
+                </>,
+                formatEuro(v.vat),
+              )}
+            </Fragment>
           ))}
-          {totalRow('zzgl. Pfand', formatEuro(invoice.deposit))}
-          {invoice.depositRefund ? totalRow('abzgl. Leergut-Rücknahme', formatEuro(-invoice.depositRefund)) : null}
-          {totalRow('Rechnungsbetrag', formatEuro(invoice.gross), { strong: true })}
+          {totalRow('Rechnungsbetrag', formatEuro(layout.gross), { strong: true })}
         </dl>
       </section>
+      <p className={cn('mt-2 text-right text-slate-500', print ? 'text-[7.5pt]' : 'text-[11px]')}>
+        Pfand und Leergut-Rücknahme netto; die Umsatzsteuer darauf ist in der MwSt. enthalten (Leergut mindert das Entgelt).
+      </p>
 
       {/* Zahlungshinweis */}
       <section

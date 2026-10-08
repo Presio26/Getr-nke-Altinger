@@ -1,10 +1,12 @@
 /**
  * Steuerung einer Tour: Starten/Beenden, GPS-Freigabe und Demo-Fahrtsimulation.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
+  ArrowDown,
   ArrowRight,
+  BellRing,
   CheckCircle2,
   Flag,
   LocateFixed,
@@ -16,15 +18,15 @@ import {
   Sparkles,
   Square,
 } from 'lucide-react';
-import type { TourWithOrders } from '@shared/types';
+import type { ID, TourWithOrders } from '@shared/types';
 import { formatEuro, formatRelative, formatTime } from '@shared/format';
 import { api } from '@/api/client';
 import { qk, useApiMutation } from '@/api/hooks';
 import { usePositions } from '@/stores/positions';
 import { useNow } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
-import { Button, Card, ConfirmModal, Notice, SegmentedControl, Switch } from '@/components/ui';
-import { currentStopIndex, plural, tourStats } from '../lib/driverUtils';
+import { Button, ButtonLink, Card, Checkbox, ConfirmModal, Notice, SegmentedControl, Switch } from '@/components/ui';
+import { currentStopIndex, isStopOpen, plural, simulationWaitingStop, tourStats } from '../lib/driverUtils';
 import { useGpsShare } from '../lib/gpsShare';
 import { GpsHelpModal } from './DriverGpsBridge';
 import { StopNumber } from './StopBits';
@@ -224,6 +226,52 @@ export function GpsShareCard({ tour }: { tour: TourWithOrders }) {
 
 // ───────────────────────────── Demo-Simulation ─────────────────────────────
 
+/**
+ * Auffälliger Hinweis, wenn die Demo-Fahrt an einem Stopp wartet, den der Fahrer selbst abschließt
+ * (manueller Stopp bzw. ohne automatische Zustellung). Nach dem Abschluss fährt die Simulation weiter.
+ */
+export function SimulationWaitNotice({ tour, currentOrderId, onHere, className }: { tour: TourWithOrders; currentOrderId?: ID; onHere?: () => void; className?: string }) {
+  const waiting = simulationWaitingStop(tour);
+  if (!waiting) return null;
+  const here = waiting.order.id === currentOrderId;
+  return (
+    <div
+      role="status"
+      className={cn(
+        'flex flex-col gap-3 rounded-2xl bg-accent-400 px-4 py-3.5 text-brand-950 shadow-raised ring-2 ring-accent-500 sm:flex-row sm:items-center',
+        className,
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-950 text-accent-300">
+          <BellRing size={22} aria-hidden />
+          <span aria-hidden className="absolute -right-1 -top-1 h-3 w-3 animate-ping rounded-full bg-red-500" />
+          <span aria-hidden className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500 ring-2 ring-accent-400" />
+        </span>
+        <p className="min-w-0 text-[15px] leading-snug">
+          <strong className="block text-[16px] font-bold">
+            Fahrzeug ist bei {waiting.order.customerName} angekommen – bitte Zustellung jetzt abschließen
+          </strong>
+          <span className="text-brand-950/80">
+            Demo-Fahrt wartet an Stopp {waiting.index + 1}. Nach dem Abschluss fährt die Simulation automatisch weiter.
+          </span>
+        </p>
+      </div>
+      {here ? (
+        onHere ? (
+          <Button size="lg" iconRight={ArrowDown} onClick={onHere} className="h-12! w-full shrink-0 bg-brand-950! text-white! hover:bg-brand-900! sm:w-auto">
+            Zum Abschluss
+          </Button>
+        ) : null
+      ) : (
+        <ButtonLink to={`/fahrer/stopp/${waiting.order.id}`} size="lg" iconRight={ArrowRight} className="h-12! w-full shrink-0 bg-brand-950! text-white! hover:bg-brand-900! sm:w-auto">
+          Stopp öffnen
+        </ButtonLink>
+      )}
+    </div>
+  );
+}
+
 /** Kompakter Simulationsstatus über der Karte (mit Stopp-Knopf) */
 export function SimulationMapBadge({ tour }: { tour: TourWithOrders }) {
   const stop = useApiMutation(() => api.stopSimulation(tour.id), {
@@ -259,8 +307,19 @@ export function SimulationCard({ tour }: { tour: TourWithOrders }) {
   const running = !!sim?.running;
   const [speed, setSpeed] = useState(String(sim?.speedFactor && [2, 4, 8].includes(sim.speedFactor) ? sim.speedFactor : 4));
   const [autoComplete, setAutoComplete] = useState(sim?.autoComplete ?? true);
+  const [manual, setManual] = useState<ID[]>(() => sim?.manualOrderIds ?? []);
+  const openStops = tour.stops.filter(isStopOpen);
+  // läuft die Simulation (auch von einem anderen Gerät gestartet), gelten deren Einstellungen
+  const simRunning = !!sim?.running;
+  const simAuto = sim?.autoComplete;
+  const simManualKey = (sim?.manualOrderIds ?? []).join(',');
+  useEffect(() => {
+    if (!simRunning) return;
+    if (simAuto !== undefined) setAutoComplete(simAuto);
+    setManual(simManualKey ? simManualKey.split(',') : []);
+  }, [simRunning, simAuto, simManualKey]);
 
-  const simulate = useApiMutation((opts: { speedFactor: number; autoComplete: boolean }) => api.simulateTour(tour.id, opts), {
+  const simulate = useApiMutation((opts: { speedFactor: number; autoComplete: boolean; manualOrderIds: ID[] }) => api.simulateTour(tour.id, opts), {
     invalidate: [qk.driverToday],
     onSuccess: () => {
       // Karte mit dem fahrenden Fahrzeug zeigen
@@ -272,7 +331,14 @@ export function SimulationCard({ tour }: { tour: TourWithOrders }) {
     success: 'Simulation gestoppt',
   });
 
-  const startSim = (s = speed, ac = autoComplete) => simulate.mutate({ speedFactor: Number(s), autoComplete: ac });
+  const startSim = (s = speed, ac = autoComplete, m = manual) =>
+    simulate.mutate({ speedFactor: Number(s), autoComplete: ac, manualOrderIds: ac ? m.filter((id) => tour.stops.some((x) => x.orderId === id)) : [] });
+  const toggleManual = (orderId: ID, on: boolean) => {
+    const next = on ? [...manual.filter((id) => id !== orderId), orderId] : manual.filter((id) => id !== orderId);
+    setManual(next);
+    if (running) startSim(speed, autoComplete, next);
+  };
+  const manualOpen = manual.filter((id) => openStops.some((s) => s.orderId === id));
 
   if (tour.status === 'completed') return null;
 
@@ -295,7 +361,9 @@ export function SimulationCard({ tour }: { tour: TourWithOrders }) {
           <p className="mt-0.5 text-sm text-slate-500">
             {running
               ? sim?.autoComplete
-                ? 'Ihr Fahrzeug fährt die Route ab und stellt die Stopps automatisch zu.'
+                ? sim.manualOrderIds?.length
+                  ? `Ihr Fahrzeug fährt die Route ab, stellt automatisch zu und wartet an ${plural(sim.manualOrderIds.length, 'Stopp', 'Stopps')} auf Sie.`
+                  : 'Ihr Fahrzeug fährt die Route ab und stellt die Stopps automatisch zu.'
                 : 'Ihr Fahrzeug fährt die Route ab und wartet an jedem Stopp auf Ihre Zustellung.'
               : 'Bewegt Ihr Fahrzeug entlang der Route – Kunden und Markt sehen die Fahrt live.'}
           </p>
@@ -321,8 +389,43 @@ export function SimulationCard({ tour }: { tour: TourWithOrders }) {
             if (running) startSim(speed, v);
           }}
           label="Stopps automatisch zustellen"
-          description={autoComplete ? 'Unbeaufsichtigte Vorführung' : 'Sie schließen jeden Stopp selbst ab'}
+          description={
+            autoComplete
+              ? manualOpen.length
+                ? `Außer ${plural(manualOpen.length, 'ausgewähltem Stopp', 'ausgewählten Stopps')} – dort wartet das Fahrzeug auf Sie`
+                : 'Unbeaufsichtigte Vorführung'
+              : 'Sie schließen jeden Stopp selbst ab'
+          }
         />
+        {autoComplete && openStops.length ? (
+          <fieldset className="rounded-xl bg-white px-3 py-2 ring-1 ring-inset ring-slate-200">
+            <legend className="sr-only">Diese Stopps selbst zustellen</legend>
+            <p className="pb-1 pt-1 text-[13px] font-bold uppercase tracking-wide text-slate-500" aria-hidden>
+              Diese Stopps selbst zustellen
+            </p>
+            <div className="divide-y divide-slate-100">
+              {openStops.map((stop) => {
+                const order = tour.orders.find((o) => o.id === stop.orderId);
+                if (!order) return null;
+                const i = tour.stops.indexOf(stop);
+                return (
+                  <Checkbox
+                    key={stop.orderId}
+                    checked={manual.includes(stop.orderId)}
+                    onChange={(e) => toggleManual(stop.orderId, e.target.checked)}
+                    disabled={simulate.isPending}
+                    label={`${i + 1}. ${order.customerName}`}
+                    description={order.address ? order.address.street : undefined}
+                    containerClassName="py-2"
+                  />
+                );
+              })}
+            </div>
+            <p className="pb-1 pt-1.5 text-[13px] leading-snug text-slate-500">
+              Das Fahrzeug hält dort an und wartet, bis Sie die Zustellung abschließen – ideal für die Vorführung am Stopp.
+            </p>
+          </fieldset>
+        ) : null}
         {running ? (
           <Button variant="outline" block icon={Square} loading={stop.isPending} onClick={() => stop.mutate()} className="h-12!">
             Simulation stoppen

@@ -24,16 +24,17 @@ export interface PaymentPanelProps {
   disabled?: boolean;
 }
 
-function Row({ label, value, strong, tone }: { label: string; value: string; strong?: boolean; tone?: 'plus' | 'minus' }) {
+function Row({ label, note, value, tone }: { label: string; note?: string; value: string; tone?: 'plus' | 'minus' }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5">
-      <dt className={cn('text-[15px]', strong ? 'font-semibold text-slate-900' : 'text-slate-600')}>{label}</dt>
+    <div className="flex items-baseline justify-between gap-4 py-2">
+      <dt className="min-w-0">
+        <span className="block text-[15px] text-slate-700">{label}</span>
+        {note ? <span className="mt-0.5 block text-[13px] leading-snug text-slate-500">{note}</span> : null}
+      </dt>
       <dd
         className={cn(
-          'shrink-0 tabular-nums',
-          strong ? 'text-[15px] font-bold text-slate-900' : 'text-[15px] font-medium text-slate-800',
-          tone === 'minus' && 'text-emerald-700',
-          tone === 'plus' && 'text-amber-700',
+          'shrink-0 text-[15px] font-semibold tabular-nums',
+          tone === 'minus' ? 'text-emerald-700' : tone === 'plus' ? 'text-amber-700' : 'text-slate-900',
         )}
       >
         {value}
@@ -49,19 +50,24 @@ export function receivedCents(state: PaymentState): number | null {
 
 export function PaymentPanel({ order, due, value, onChange, showErrors = false, disabled = false }: PaymentPanelProps) {
   const kind = payKind(order.paymentMethod);
-  const diffText =
+  // Rechnung wie auf dem Zettel: Bestellsumme (bereits inkl. angekündigtem Leergut) ± Abweichung = Betrag
+  const diffNote =
     due.refundDiff === 0
-      ? null
-      : due.refundDiff > 0
-        ? `Mehr Leergut als angekündigt: ${formatEuro(due.refundDiff)} weniger`
-        : `Weniger Leergut als angekündigt: ${formatEuro(-due.refundDiff)} mehr`;
-
+      ? undefined
+      : `${due.refundDiff > 0 ? 'Mehr' : 'Weniger'} Leergut als angekündigt – erfasst ${formatEuro(due.actualRefund)} statt ${formatEuro(due.announcedRefund)}`;
   const breakdown = (
-    <dl className="divide-y divide-slate-100 rounded-xl bg-slate-50 px-3.5 py-1.5 ring-1 ring-inset ring-slate-100">
-      <Row label="Bestellsumme" value={formatEuro(due.orderTotal)} />
-      {due.announcedRefund ? <Row label="inkl. Leergut-Gutschrift" value={formatEuro(-due.announcedRefund)} /> : null}
+    <dl className="divide-y divide-slate-200/70 rounded-xl bg-slate-50 px-3.5 py-0.5 ring-1 ring-inset ring-slate-100">
+      <Row
+        label="Bestellsumme"
+        note={
+          due.announcedRefund
+            ? `Ware & Pfand ${formatEuro(due.orderTotal + due.announcedRefund)} − angekündigtes Leergut ${formatEuro(due.announcedRefund)}`
+            : 'Ware & Pfand, kein Leergut angekündigt'
+        }
+        value={formatEuro(due.orderTotal)}
+      />
       {due.refundDiff !== 0 ? (
-        <Row label="Leergut-Abweichung" value={formatEuro(-due.refundDiff, { sign: true })} tone={due.refundDiff > 0 ? 'minus' : 'plus'} />
+        <Row label="Leergut-Abweichung" note={diffNote} value={formatEuro(-due.refundDiff, { sign: true })} tone={due.refundDiff > 0 ? 'minus' : 'plus'} />
       ) : null}
     </dl>
   );
@@ -71,7 +77,9 @@ export function PaymentPanel({ order, due, value, onChange, showErrors = false, 
       <div className="space-y-3">
         <Notice tone="success" icon={BadgeCheck} title={`Bereits bezahlt (${PAYMENT_METHOD_LABEL[order.paymentMethod]})`}>
           Hier ist nichts zu kassieren.
-          {diffText ? ` ${diffText} – die Leergut-Abweichung wird vom Markt mit dem Kundenkonto verrechnet.` : ''}
+          {due.refundDiff !== 0
+            ? ` Die Leergut-Abweichung von ${formatEuro(-due.refundDiff, { sign: true })} verrechnet der Markt mit dem Kundenkonto.`
+            : ''}
         </Notice>
         {due.refundDiff !== 0 ? breakdown : null}
       </div>
@@ -83,9 +91,17 @@ export function PaymentPanel({ order, due, value, onChange, showErrors = false, 
       <div className="space-y-3">
         <Notice tone="info" icon={FileText} title={order.paymentMethod === 'sepa' ? 'Per SEPA-Lastschrift' : 'Per Rechnung'}>
           Hier ist nichts zu kassieren. {formatEuro(due.due)} {order.paymentMethod === 'sepa' ? 'werden per Lastschrift eingezogen' : 'erscheinen auf der Sammelrechnung'}
-          {due.refundDiff !== 0 ? ' (inkl. Leergut-Abweichung)' : ''}.
+          {due.refundDiff !== 0 ? ' (Bestellsumme ± Leergut-Abweichung)' : ''}.
         </Notice>
-        {due.refundDiff !== 0 ? breakdown : null}
+        {due.refundDiff !== 0 ? (
+          <div className="space-y-2">
+            {breakdown}
+            <div className="flex items-baseline justify-between gap-4 rounded-xl bg-slate-100 px-3.5 py-2.5">
+              <span className="text-[15px] font-semibold text-slate-800">{order.paymentMethod === 'sepa' ? 'Wird eingezogen' : 'Auf der Rechnung'}</span>
+              <span className="text-[15px] font-bold tabular-nums text-slate-900">{formatEuro(due.due)}</span>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -114,7 +130,6 @@ export function PaymentPanel({ order, due, value, onChange, showErrors = false, 
           {formatEuro(Math.abs(due.due))}
         </span>
       </div>
-      {diffText ? <p className="-mt-2 text-sm font-medium text-slate-500">{diffText}.</p> : null}
 
       {payout ? (
         <Notice tone="success" icon={Banknote}>

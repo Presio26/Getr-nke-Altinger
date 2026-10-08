@@ -9,6 +9,7 @@ import type {
   ID,
   Order,
   PaymentMethod,
+  Product,
   StopStatus,
   Tour,
   TourStop,
@@ -29,6 +30,34 @@ export function crateCount(order: Pick<Order, 'lines'>): number {
 /** Anzahl Leergut-Gebinde (angekündigt oder erfasst) */
 export function emptiesCount(lines: EmptiesLine[]): number {
   return lines.reduce((s, l) => s + l.qty, 0);
+}
+
+/** Lose Einzelflasche/-dose (stückweise Rückgabe, kein Leergut-Konto) */
+export function isLoose(type: Pick<DepositType, 'loose'> | undefined): boolean {
+  return !!type?.loose;
+}
+
+/** Leergut lesbar zusammengefasst: „2 Kästen · 12 Einzelflaschen“ (ohne Leergut: „kein Leergut“) */
+export function emptiesLabel(lines: EmptiesLine[], types: DepositType[]): string {
+  let crates = 0;
+  let loose = 0;
+  for (const l of lines) {
+    if (!l.qty) continue;
+    if (isLoose(types.find((t) => t.id === l.depositTypeId))) loose += l.qty;
+    else crates += l.qty;
+  }
+  const parts: string[] = [];
+  if (crates) parts.push(plural(crates, 'Gebinde', 'Gebinde'));
+  if (loose) parts.push(plural(loose, 'Einzelflasche', 'Einzelflaschen'));
+  return parts.length ? parts.join(' · ') : 'kein Leergut';
+}
+
+/** Einheit je Leergut-Art („je Kasten“, „je Fass“, „je Flasche“, „je Stück“) */
+export function emptiesUnit(type: DepositType): string {
+  const text = `${type.id} ${type.name} ${type.shortName}`;
+  if (type.loose) return /dose|einweg/i.test(text) ? 'je Stück' : 'je Flasche';
+  if (/fass/i.test(text)) return 'je Fass';
+  return 'je Kasten';
 }
 
 export interface TourStats {
@@ -253,6 +282,62 @@ export function dueInfo(order: Order, collected: EmptiesLine[], types: DepositTy
   const announcedRefund = order.totals.depositRefund;
   const refundDiff = actualRefund - announcedRefund;
   return { orderTotal: order.totals.total, announcedRefund, actualRefund, refundDiff, due: order.totals.total - refundDiff };
+}
+
+// ───────────────────────────── Jugendschutz ─────────────────────────────
+
+export interface AgeCheck {
+  /** Mindestalter: 18 bei Spirituosen bzw. ab 15 % vol, sonst 16 */
+  minAge: 16 | 18;
+  /** betroffene Positionen (Name) */
+  items: string[];
+}
+
+/** alkoholhaltig im Sinne des Jugendschutzes (wie im Shop: über 0,5 % vol und nicht „alkoholfrei“) */
+function alcoholic(p: Pick<Product, 'alcoholPercent' | 'categoryId' | 'tags' | 'isRental'>): boolean {
+  if (p.isRental) return false;
+  if (p.categoryId === 'alkoholfrei' || p.tags.includes('alkoholfrei')) return false;
+  return (p.alcoholPercent ?? 0) > 0.5;
+}
+
+/** Enthält die Lieferung alkoholische Getränke? → Mindestalter und betroffene Positionen, sonst null */
+export function ageCheck(order: Pick<Order, 'lines'>, products: Map<ID, Product>): AgeCheck | null {
+  let minAge: 16 | 18 = 16;
+  const items: string[] = [];
+  for (const line of order.lines) {
+    const p = products.get(line.productId);
+    if (!p || !alcoholic(p)) continue;
+    items.push(line.name);
+    if (p.categoryId === 'spirituosen' || (p.alcoholPercent ?? 0) >= 15) minAge = 18;
+  }
+  return items.length ? { minAge, items } : null;
+}
+
+export function ageCheckNote(check: AgeCheck): string {
+  return `Alter geprüft (ab ${check.minAge} Jahren)`;
+}
+
+// ───────────────────────────── Demo-Simulation ─────────────────────────────
+
+/** Schließt der Fahrer diesen Stopp in der Simulation selbst ab (statt automatischer Zustellung)? */
+export function isManualSimStop(tour: Pick<Tour, 'simulation'>, orderId: ID): boolean {
+  const sim = tour.simulation;
+  if (!sim) return true;
+  return !sim.autoComplete || !!sim.manualOrderIds?.includes(orderId);
+}
+
+/**
+ * Wartet die laufende Demo-Simulation an einem Stopp auf die Zustellung durch den Fahrer?
+ * (Fahrzeug ist angekommen, Stopp „vor Ort“ und vom Fahrer abzuschließen)
+ */
+export function simulationWaitingStop(tour: TourWithOrders): { index: number; order: Order } | null {
+  const sim = tour.simulation;
+  if (!sim?.running || tour.status !== 'active') return null;
+  const index = sim.legIndex;
+  const stop = tour.stops[index];
+  if (!stop || stop.status !== 'arrived' || !isManualSimStop(tour, stop.orderId)) return null;
+  const order = tour.orders.find((o) => o.id === stop.orderId);
+  return order && order.status === 'out_for_delivery' ? { index, order } : null;
 }
 
 const PAID_EC = 'Bezahlt: EC-Karte';

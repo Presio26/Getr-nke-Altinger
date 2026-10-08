@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Building2, Printer } from 'lucide-react';
+import { ArrowLeft, Building2, FileSearch, FileText, LayoutDashboard, Printer } from 'lucide-react';
 import type { Order } from '@shared/types';
 import { formatDate, formatEuro } from '@shared/format';
 import { ApiError } from '@shared/api';
@@ -11,7 +11,7 @@ import { qk, useDepositTypes, useMyInvoices, useProductMap } from '@/api/hooks';
 import { useSession } from '@/stores/session';
 import { useNow } from '@/lib/hooks';
 import { printPage } from '@/lib/download';
-import { Button, ButtonLink, Card, ErrorState, PageHeader, Skeleton } from '@/components/ui';
+import { Button, ButtonLink, Card, EmptyState, ErrorState, PageHeader, Skeleton } from '@/components/ui';
 import { BusinessNav } from './components/BusinessNav';
 import { InvoiceDocument } from './components/InvoiceDocument';
 import { InvoiceStatusBadge } from './components/InvoiceStatusBadge';
@@ -64,6 +64,7 @@ export default function InvoiceDetailPage() {
   }, []);
 
   const data = query.data;
+  const notFound = notMine || (query.error instanceof ApiError && (query.error.code === 'not_found' || query.error.code === 'forbidden'));
   const orderHref = (o: Order) => (isAdmin ? `/admin/bestellungen/${o.id}` : `/bestellung/${o.id}`);
 
   const header = (
@@ -100,23 +101,46 @@ export default function InvoiceDetailPage() {
     />
   );
 
+  // Nicht gefunden – gleiches Muster wie im Shop: Seitenüberschrift (h1) + EmptyState mit Aktionen
+  if (notFound) {
+    return (
+      <div className="no-print">
+        {!isAdmin ? <BusinessNav /> : null}
+        <PageHeader title="Rechnung nicht gefunden" back={backTo} />
+        <Card padding="none">
+          <EmptyState
+            icon={FileSearch}
+            title="Diese Rechnung gibt es nicht – oder sie gehört zu einem anderen Konto"
+            description="Bitte prüfen Sie den Link. Alle Ihre Rechnungen finden Sie jederzeit in der Übersicht."
+            action={
+              <>
+                <ButtonLink to={backTo} icon={FileText}>
+                  Zur Rechnungsübersicht
+                </ButtonLink>
+                <ButtonLink to={isAdmin ? '/admin' : '/business'} variant="outline" icon={LayoutDashboard}>
+                  {isAdmin ? 'Zum Dashboard' : 'Zum Geschäftskunden-Portal'}
+                </ButtonLink>
+              </>
+            }
+          />
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="no-print">
       <style>{PRINT_CSS}</style>
       {!isAdmin ? <BusinessNav /> : null}
       {header}
 
-      {query.isError || notMine || (!isAdmin && mine.isError) ? (
-        <Card>
+      {query.isError || (!isAdmin && mine.isError) ? (
+        <Card padding="none">
           <ErrorState
-            error={notMine ? new ApiError('not_found', 'Die Rechnung wurde nicht gefunden.') : (query.error ?? mine.error)}
-            onRetry={
-              notMine || (query.error instanceof ApiError && query.error.code === 'not_found')
-                ? undefined
-                : () => void (mine.isError ? mine.refetch() : query.refetch())
-            }
+            error={query.error ?? mine.error}
+            onRetry={() => void (mine.isError ? mine.refetch() : query.refetch())}
             action={
-              <ButtonLink to={backTo} variant="ghost" icon={ArrowLeft}>
+              <ButtonLink to={backTo} variant="outline" icon={ArrowLeft}>
                 Zur Rechnungsübersicht
               </ButtonLink>
             }

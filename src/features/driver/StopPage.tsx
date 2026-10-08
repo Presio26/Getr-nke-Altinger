@@ -8,6 +8,9 @@ import {
   ChevronRight,
   Circle,
   ClipboardCheck,
+  Home,
+  IdCard,
+  ListOrdered,
   MapPinCheck,
   PackageOpen,
   Recycle,
@@ -20,16 +23,19 @@ import {
 } from 'lucide-react';
 import type { DeliveryProofInput, Driver, ID, Order, TourWithOrders } from '@shared/types';
 import { formatEuro, formatTime, STOP_STATUS_LABEL } from '@shared/format';
+import { ApiError } from '@shared/api';
 import { api } from '@/api/client';
-import { qk, useApiMutation, useDepositTypes, useDriverToday, useOrder } from '@/api/hooks';
+import { qk, useApiMutation, useDepositTypes, useDriverToday, useOrder, useProductMap } from '@/api/hooks';
 import { readJson, writeJson, writeStorage } from '@/lib/storage';
 import { cn } from '@/lib/cn';
+import { StickyActionBar } from '@/components/layout';
 import {
   Badge,
   Button,
   ButtonLink,
   Card,
   CardHeader,
+  Checkbox,
   Divider,
   EmptyState,
   ErrorState,
@@ -40,13 +46,14 @@ import {
   Skeleton,
   toast,
 } from '@/components/ui';
-import { dueInfo, emptiesCount, findStop, nextOpenIndex, payKind, paymentNote, STOP_TONE } from './lib/driverUtils';
+import { ageCheck, ageCheckNote, dueInfo, emptiesLabel, findStop, nextOpenIndex, payKind, paymentNote, STOP_TONE } from './lib/driverUtils';
 import { CustomerCard, DoneBanner, EmptiesSummary, ItemsCard, NotesCard, ProofView } from './components/StopSections';
 import { EmptiesEditor } from './components/EmptiesEditor';
 import { PaymentPanel, paymentComplete, receivedCents, type PaymentState } from './components/PaymentPanel';
 import { SignaturePad } from './components/SignaturePad';
 import { PhotoCapture } from './components/PhotoCapture';
 import { FailModal } from './components/FailModal';
+import { SimulationWaitNotice } from './components/TourControls';
 
 // ───────────────────────────── Entwurf (je Stopp gespeichert) ─────────────────────────────
 
@@ -57,6 +64,8 @@ interface StopDraft {
   received: string;
   ecConfirmed: boolean;
   receivedBy: string;
+  /** Jugendschutz: Alter des Empfängers geprüft */
+  ageChecked: boolean;
 }
 
 const draftKey = (orderId: ID) => `altinger.driver.stopp.${orderId}`;
@@ -72,6 +81,7 @@ function initialDraft(order: Order): StopDraft {
     received: stored?.received ?? '',
     ecConfirmed: stored?.ecConfirmed ?? false,
     receivedBy: stored?.receivedBy ?? (order.customerType === 'b2c' ? (order.address?.name ?? order.customerName) : ''),
+    ageChecked: stored?.ageChecked ?? false,
   };
 }
 
@@ -108,7 +118,9 @@ export default function StopPage() {
     return (
       <>
         <PageHeader title="Stopp" back="/fahrer" />
-        <ErrorState error={today.error} onRetry={() => void today.refetch()} />
+        <Card padding="none">
+          <ErrorState error={today.error} onRetry={() => void today.refetch()} />
+        </Card>
       </>
     );
   }
@@ -117,16 +129,41 @@ export default function StopPage() {
     return <StopWorkspace key={found.order.id} order={found.order} tour={found.tour} index={found.index} driver={today.data?.driver} />;
   }
   if (single.data) return <StopWorkspace key={single.data.id} order={single.data} driver={today.data?.driver} />;
+  const active = today.data?.tours.find((t) => t.status === 'active');
+  // Nicht gefunden – gleiches Muster wie im Shop: Seitenüberschrift (h1) + EmptyState mit Aktionen
   return (
     <>
-      <PageHeader title="Stopp" back="/fahrer" />
-      <Card>
-        <EmptyState
-          icon={SearchX}
-          title="Auftrag nicht gefunden"
-          description="Dieser Auftrag ist Ihnen nicht (mehr) zugewiesen. Möglicherweise wurde die Tour vom Markt geändert."
-          action={<ButtonLink to="/fahrer">Zur Tagesübersicht</ButtonLink>}
-        />
+      <PageHeader title="Stopp nicht gefunden" back="/fahrer" />
+      <Card padding="none">
+        {single.error && !(single.error instanceof ApiError && (single.error.code === 'not_found' || single.error.code === 'forbidden')) ? (
+          <ErrorState
+            error={single.error}
+            onRetry={() => void single.refetch()}
+            action={
+              <ButtonLink to="/fahrer" variant="outline" icon={Home}>
+                Zur Tagesübersicht
+              </ButtonLink>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={SearchX}
+            title="Diesen Auftrag gibt es nicht – oder er ist Ihnen nicht zugewiesen"
+            description="Möglicherweise wurde die Tour vom Markt geändert. Ihre aktuellen Stopps finden Sie in der Tagesübersicht."
+            action={
+              <>
+                <ButtonLink to="/fahrer" icon={Home}>
+                  Zur Tagesübersicht
+                </ButtonLink>
+                {active ? (
+                  <ButtonLink to={`/fahrer/tour/${active.id}`} variant="outline" icon={ListOrdered}>
+                    Zur laufenden Tour
+                  </ButtonLink>
+                ) : null}
+              </>
+            }
+          />
+        )}
       </Card>
     </>
   );
@@ -142,6 +179,8 @@ interface WorkspaceProps {
 function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
   const navigate = useNavigate();
   const types = useDepositTypes();
+  const productMap = useProductMap();
+  const age = useMemo(() => ageCheck(order, productMap), [order, productMap]);
   const [draft, setDraft] = useState<StopDraft>(() => initialDraft(order));
   const [signature, setSignature] = useState<string | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -207,6 +246,8 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
   if (!payOk) missing.push({ id: 'kassieren', label: draft.method === 'ec' ? 'EC-Zahlung bestätigen' : 'erhaltenen Betrag eingeben' });
   if (!proofOk) missing.push({ id: 'empfang', label: 'Unterschrift oder Foto' });
   if (!nameOk) missing.push({ id: 'empfang', label: 'Name des Empfängers' });
+  const ageOk = !age || draft.ageChecked;
+  if (!ageOk) missing.push({ id: 'jugendschutz', label: 'Alterskontrolle bestätigen' });
 
   const submit = () => {
     if (missing.length) {
@@ -216,6 +257,7 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
       return;
     }
     const notes: string[] = [];
+    if (age) notes.push(ageCheckNote(age));
     if (kind === 'collect') {
       if (due.due < 0) notes.push(`Leergut-Auszahlung ${formatEuro(-due.due)} bar`);
       else {
@@ -258,10 +300,13 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
     </span>
   );
 
-  const emptiesNow = emptiesCount(emptiesLines);
+  const emptiesNow = emptiesLabel(emptiesLines, types);
+  // „Zum Abschluss“: zum ersten noch fehlenden Punkt (Kassieren, Alterskontrolle, Unterschrift), sonst zum Empfang
+  const scrollToFinish = () => document.getElementById(missing[0]?.id ?? 'empfang')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
-    <div className={cn(active ? 'pb-28' : 'pb-14', 'lg:pb-0')}>
+    // Abstand für die feste Aktionsleiste hält das Layout (--sticky-bar-h); pb-14 = Platz für die Demo-Pille
+    <div className="pb-14 lg:pb-0">
       <PageHeader
         title={tour ? `Stopp ${index + 1} von ${total}` : 'Stopp'}
         documentTitle={tour ? `Stopp ${index + 1} · ${order.customerName}` : `Stopp · ${order.customerName}`}
@@ -284,7 +329,14 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
 
       {/* Status / Ankunft */}
       <div className="mb-4 space-y-3">
+        {tour && active ? <SimulationWaitNotice tour={tour} currentOrderId={order.id} onHere={scrollToFinish} /> : null}
         {done ? <DoneBanner order={order} /> : null}
+        {age && !done ? (
+          <Notice tone="danger" icon={IdCard} title={`Alter prüfen (ab ${age.minAge} Jahren)`}>
+            {age.minAge === 18 ? 'Die Lieferung enthält Spirituosen' : 'Die Lieferung enthält alkoholische Getränke'} ({age.items.join(', ')}). Übergabe nur an
+            Personen ab {age.minAge} Jahren – im Zweifel Ausweis zeigen lassen.
+          </Notice>
+        ) : null}
         {!active && !done ? (
           <Notice
             tone="warning"
@@ -344,7 +396,7 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
                   title="Leergut erfassen"
                   subtitle={
                     order.emptiesReturn.length
-                      ? `Angekündigt: ${emptiesCount(order.emptiesReturn)} Gebinde · jetzt erfasst: ${emptiesNow}`
+                      ? `Angekündigt: ${emptiesLabel(order.emptiesReturn, types)} · jetzt erfasst: ${emptiesNow}`
                       : 'Kein Leergut angekündigt – bei Bedarf hier erfassen.'
                   }
                   icon={Recycle}
@@ -360,6 +412,26 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
 
               <Card id="empfang" className="scroll-mt-24">
                 <CardHeader title="Empfang bestätigen" subtitle="Unterschrift und/oder Foto als Zustellnachweis" icon={Signature} />
+                {age ? (
+                  <div
+                    id="jugendschutz"
+                    className={cn(
+                      'mb-4 scroll-mt-24 rounded-xl px-3 ring-1 ring-inset',
+                      showErrors && !draft.ageChecked ? 'bg-red-50/70 ring-red-300' : draft.ageChecked ? 'bg-emerald-50/70 ring-emerald-200' : 'bg-amber-50 ring-amber-300',
+                    )}
+                  >
+                    <Checkbox
+                      checked={draft.ageChecked}
+                      onChange={(e) => patch({ ageChecked: e.target.checked })}
+                      label={age.minAge === 18 ? 'Alter geprüft – Empfänger ist volljährig (ab 18)' : 'Alter geprüft – Empfänger ist mindestens 16 Jahre alt'}
+                      description="Pflicht bei alkoholischen Getränken (Jugendschutzgesetz). Wird im Zustellnachweis vermerkt."
+                      containerClassName="py-3"
+                    />
+                    {showErrors && !draft.ageChecked ? (
+                      <p className="-mt-1 pb-2.5 text-sm font-medium text-red-600">Bitte bestätigen Sie die Alterskontrolle – sonst „Problem melden“.</p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <Input
                   label="Name des Empfängers"
                   icon={User}
@@ -384,7 +456,8 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
                 <CardHeader title="Abschluss" icon={ClipboardCheck} />
                 <ul className="mb-4 space-y-2 text-[15px]">
                   {[
-                    { ok: true, label: `Leergut: ${emptiesNow} Gebinde (${formatEuro(due.actualRefund)})`, icon: Recycle },
+                    { ok: true, label: `Leergut: ${emptiesNow} (${formatEuro(due.actualRefund)})`, icon: Recycle },
+                    ...(age ? [{ ok: draft.ageChecked, label: `Alter geprüft (ab ${age.minAge})`, icon: IdCard }] : []),
                     {
                       ok: payOk,
                       label:
@@ -464,10 +537,10 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
         </div>
       </div>
 
-      {/* Mobil: feste Aktionsleiste (links Platz für den Demo-Knopf) */}
+      {/* Mobil: feste Aktionsleiste */}
       {active ? (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur lg:hidden">
-          <div className="mx-auto flex max-w-3xl items-center gap-2 pb-safe-4 pl-16 pr-4 pt-3 sm:pl-44">
+        <StickyActionBar offset="none">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setFailOpen(true)}
@@ -482,10 +555,17 @@ function StopWorkspace({ order, tour, index = -1, driver }: WorkspaceProps) {
               Zustellung abschließen
             </Button>
           </div>
-        </div>
+        </StickyActionBar>
       ) : null}
 
-      <FailModal open={failOpen} onClose={() => setFailOpen(false)} onSubmit={(r) => fail.mutate(r)} loading={fail.isPending} customerName={order.customerName} />
+      <FailModal
+        open={failOpen}
+        onClose={() => setFailOpen(false)}
+        onSubmit={(r) => fail.mutate(r)}
+        loading={fail.isPending}
+        customerName={order.customerName}
+        {...(age ? { ageLimit: age.minAge } : {})}
+      />
     </div>
   );
 }

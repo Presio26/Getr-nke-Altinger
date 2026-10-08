@@ -30,6 +30,7 @@ import { Badge, Card, CardHeader, EmptyState, ErrorState, Skeleton, Spinner, toa
 import { NotificationItem } from '@/components/layout';
 import { currentStopIndex, firstName, greeting, isStopDone, plural, sumStats, tourStats } from './lib/driverUtils';
 import { ProgressBar, StopNumber } from './components/StopBits';
+import { SimulationWaitNotice } from './components/TourControls';
 import { RoutePreview } from './components/TourMap';
 
 const TOUR_TONE: Record<TourWithOrders['status'], BadgeTone> = { planned: 'brand', active: 'accent', completed: 'success' };
@@ -308,6 +309,7 @@ export default function DriverHomePage() {
   return (
     <div className="space-y-5 pb-14 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] lg:items-start lg:gap-6 lg:space-y-0 lg:pb-0">
       <div className="space-y-5">
+        {active ? <SimulationWaitNotice tour={active} /> : null}
         {/* Begrüßung */}
         <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 via-brand-800 to-brand-950 p-5 text-white shadow-raised sm:p-6">
           <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full bg-accent-400/15 blur-2xl" />

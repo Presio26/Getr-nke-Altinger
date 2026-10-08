@@ -21,7 +21,6 @@ import { formatDate, formatEuro } from '@shared/format';
 import { computePrice, useDepositTypes, useMyCustomer, useMyOrders, useProductMap, useProducts, useQuote, type PriceInfo } from '@/api/hooks';
 import { MAX_QTY, useCart, type CartData } from '@/stores/cart';
 import { useUser } from '@/stores/session';
-import { useUi } from '@/stores/ui';
 import { readJson, writeJson } from '@/lib/storage';
 import { useIsDesktop } from '@/lib/hooks';
 import { cn } from '@/lib/cn';
@@ -43,6 +42,7 @@ import {
   Spinner,
   toast,
 } from '@/components/ui';
+import { StickyActionBar } from '@/components/layout';
 import { BusinessNav } from './components/BusinessNav';
 import { PasteImportModal } from './components/PasteImportModal';
 import { ProductSearch } from './components/ProductSearch';
@@ -220,12 +220,59 @@ function StockHint({ line }: { line: Line }) {
 
 // ───────────────────────────── Zusammenfassung ─────────────────────────────
 
+interface SummaryRow {
+  label: string;
+  /** Cent oder Text (z. B. „frei Haus“) */
+  value: number | string;
+  muted?: boolean;
+}
+
+/** Summen der Schnellbestellung – ausschließlich aus dem Core (api.quote), nichts wird nachgerechnet */
+interface QuickSummary {
+  rows: SummaryRow[];
+  vat: SummaryRow[];
+  total: number;
+  /** MwSt. nur als „darin enthalten“ (ohne Netto-Aufschlüsselung des Cores) */
+  vatIncluded?: boolean;
+}
+
+function quoteSummary(q: Quote): QuickSummary {
+  const t = q.totals;
+  const np = t.netParts;
+  const fees = t.deliveryFee + t.carryFee;
+  const breakdown = (t.vatBreakdown ?? []).filter((v) => v.vat !== 0 || v.net !== 0).sort((a, b) => b.rate - a.rate);
+  const breakdownOk = breakdown.length > 0 && breakdown.reduce((s, v) => s + v.vat, 0) === t.vat;
+  const vat: SummaryRow[] = breakdownOk
+    ? breakdown.map((v) => ({ label: `zzgl. MwSt. ${v.rate}\u00a0%`, value: v.vat }))
+    : [{ label: 'zzgl. MwSt.', value: t.vat }];
+  if (np) {
+    const rows: SummaryRow[] = [{ label: 'Warenwert netto', value: np.items }];
+    if (np.discount) rows.push({ label: 'Rabatt netto', value: -np.discount });
+    rows.push(fees > 0 ? { label: 'Lieferung netto', value: np.deliveryFee + np.carryFee } : { label: 'Lieferung', value: 'frei Haus' });
+    rows.push({ label: 'Pfand netto', value: np.deposit });
+    if (np.depositRefund) rows.push({ label: 'Leergut netto', value: -np.depositRefund });
+    return { rows, vat, total: t.total };
+  }
+  // ältere Daten ohne Netto-Aufschlüsselung: Bruttowerte, MwSt. als enthaltener Betrag
+  const rows: SummaryRow[] = [{ label: 'Warenwert brutto', value: t.itemsGross }];
+  if (t.discount) rows.push({ label: 'Rabatt', value: -t.discount });
+  rows.push(fees > 0 ? { label: 'Lieferung', value: fees } : { label: 'Lieferung', value: 'frei Haus' });
+  rows.push({ label: 'Pfand', value: t.deposit });
+  if (t.depositRefund) rows.push({ label: 'Leergut', value: -t.depositRefund });
+  return { rows, vat: [{ label: 'darin enthaltene MwSt.', value: t.vat, muted: true }], total: t.total, vatIncluded: true };
+}
+
 interface SummaryProps {
   customer: Customer | null;
   positions: number;
   units: number;
-  totals: { net: number; feeNet: number; fees: number; vat: number; deposit: number; total: number };
+  /** Summe der Positionen netto (sofort, ohne Core-Antwort) */
+  goodsNet: number;
+  /** Summen des Cores (null = noch nicht berechnet) */
+  summary: QuickSummary | null;
   calculating: boolean;
+  /** Preisberechnung fehlgeschlagen (z. B. keine Verbindung) */
+  failed?: boolean;
   messages: { errors: QuoteMessage[]; warnings: QuoteMessage[] };
   costCenter: string;
   onCostCenter: (v: string) => void;
@@ -242,8 +289,10 @@ function SummaryCard({
   customer,
   positions,
   units,
-  totals,
+  goodsNet,
+  summary,
   calculating,
+  failed = false,
   messages,
   costCenter,
   onCostCenter,
@@ -261,11 +310,14 @@ function SummaryCard({
   const blocking = messages.errors.length > 0;
 
   const row = (label: string, value: string, opts: { strong?: boolean; muted?: boolean } = {}) => (
-    <div className={cn('flex items-baseline justify-between gap-3', opts.strong ? 'text-base font-bold text-slate-900' : 'text-[15px] text-slate-600')}>
+    <div key={label} className={cn('flex items-baseline justify-between gap-3', opts.strong ? 'text-base font-bold text-slate-900' : 'text-[15px] text-slate-600')}>
       <dt className={cn(opts.muted && 'text-slate-500')}>{label}</dt>
-      <dd className={cn('tabular-nums', opts.strong ? 'text-lg' : 'font-medium text-slate-900')}>{value}</dd>
+      <dd className={cn('tabular-nums', opts.strong ? 'text-lg' : opts.muted ? 'text-slate-500' : 'font-medium text-slate-900')}>{value}</dd>
     </div>
   );
+  const money = (v: number | string) => (typeof v === 'string' ? v : formatEuro(v));
+  // ohne Mengen bzw. vor der ersten Berechnung: nur der Warenwert, Rest offen
+  const shown = empty ? null : summary;
 
   return (
     <Card padding="none" className={cn('overflow-hidden', className)}>
@@ -279,12 +331,21 @@ function SummaryCard({
         </p>
       </div>
 
-      <dl className="space-y-1.5 border-t border-slate-100 px-5 py-3.5">
-        {row('Warenwert netto', formatEuro(totals.net))}
-        {totals.fees > 0 ? row('Lieferung netto', formatEuro(totals.feeNet)) : row('Lieferung', empty ? '–' : 'frei Haus')}
-        {row('MwSt.', formatEuro(totals.vat))}
-        {row('Pfand', formatEuro(totals.deposit))}
-        <div className="!mt-2.5 border-t border-dashed border-slate-200 pt-2.5">{row('Gesamt brutto', formatEuro(totals.total), { strong: true })}</div>
+      <dl className={cn('space-y-1.5 border-t border-slate-100 px-5 py-3.5 transition-opacity', calculating && shown && 'opacity-60')} aria-busy={calculating || undefined}>
+        {shown ? (
+          <>
+            {shown.rows.map((r) => row(r.label, money(r.value), { muted: r.muted }))}
+            {!shown.vatIncluded ? shown.vat.map((r) => row(r.label, money(r.value))) : null}
+            <div className="!mt-2.5 border-t border-dashed border-slate-200 pt-2.5">{row('Gesamt brutto', formatEuro(shown.total), { strong: true })}</div>
+            {shown.vatIncluded ? shown.vat.map((r) => row(r.label, money(r.value), { muted: true })) : null}
+          </>
+        ) : (
+          <>
+            {row('Warenwert netto', formatEuro(goodsNet))}
+            {row('Lieferung, Pfand, MwSt.', empty ? '–' : failed ? 'derzeit nicht berechenbar' : 'wird berechnet …', { muted: true })}
+            <div className="!mt-2.5 border-t border-dashed border-slate-200 pt-2.5">{row('Gesamt brutto', empty ? formatEuro(0) : '…', { strong: true })}</div>
+          </>
+        )}
       </dl>
 
       {messages.errors.length || messages.warnings.length ? (
@@ -348,7 +409,6 @@ export default function QuickOrderPage() {
   const user = useUser();
   const navigate = useNavigate();
   const desktop = useIsDesktop();
-  const demoBarVisible = useUi((s) => s.demoBarVisible);
   const customerQ = useMyCustomer();
   const ordersQ = useMyOrders();
   const productsQ = useProducts();
@@ -442,16 +502,16 @@ export default function QuickOrderPage() {
   const quoteQ = useQuote(quoteInput, !!customer);
   const quote = quoteMatches(quoteQ.data, items) ? quoteQ.data : undefined;
 
-  // Summen: Positionen exakt wie im Core (priceProduct); Gebühren und Hinweise aus api.quote
-  const totals = useMemo(() => {
-    const net = selected.reduce((s, l) => s + l.lineNet, 0);
-    const gross = selected.reduce((s, l) => s + l.lineGross, 0);
-    const deposit = selected.reduce((s, l) => s + l.deposit, 0);
-    const fees = quote ? quote.totals.deliveryFee + quote.totals.carryFee : 0;
-    const feeNet = Math.round((fees * 100) / 119);
-    const total = quote ? quote.totals.total : gross + deposit + fees;
-    return { net, fees, feeNet, deposit, total, vat: total - deposit - net - feeNet };
-  }, [selected, quote]);
+  // Summen: Positionen sofort (priceProduct wie im Core); MwSt., Pfand, Gebühren und Gesamt nur aus api.quote.
+  // Während der Neuberechnung bleibt die letzte Core-Summe (abgeblendet) stehen.
+  const goodsNet = useMemo(() => selected.reduce((s, l) => s + l.lineNet, 0), [selected]);
+  const summary = useMemo(() => (quote ? quoteSummary(quote) : null), [quote]);
+  const [lastSummary, setLastSummary] = useState<QuickSummary | null>(null);
+  useEffect(() => {
+    if (summary) setLastSummary(summary);
+    else if (!items.length) setLastSummary(null);
+  }, [summary, items.length]);
+  const shownSummary = summary ?? (items.length ? lastSummary : null);
 
   const messages = useMemo(
     () => ({
@@ -622,8 +682,10 @@ export default function QuickOrderPage() {
     customer,
     positions: items.length,
     units,
-    totals,
+    goodsNet,
+    summary: shownSummary,
     calculating: !!quoteInput && !quote && !quoteQ.isError,
+    failed: quoteQ.isError,
     messages,
     costCenter,
     onCostCenter: setCostCenter,
@@ -921,25 +983,21 @@ export default function QuickOrderPage() {
         ) : null}
       </div>
 
-      {/* Mobile: schwebende Summe über der Tab-Leiste */}
-      {!desktop && items.length ? <div aria-hidden className="h-24" /> : null}
+      {/* Mobile: Summe als feste Aktionsleiste über der Tab-Leiste (das Layout hält per --sticky-bar-h Abstand) */}
       {!desktop && items.length > 0 && !summaryInView ? (
-        <>
-          <div
-            className="fixed inset-x-3 z-30 flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/95 p-2.5 pl-4 shadow-pop backdrop-blur-md animate-fade-in"
-            style={{ bottom: `calc(env(safe-area-inset-bottom) + ${demoBarVisible ? 7.75 : 4.75}rem)` }}
-          >
+        <StickyActionBar className="animate-fade-in">
+          <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] text-slate-500">
-                {units} Gebinde · brutto
+              <p className="truncate text-[13px] text-slate-500">{units} Gebinde · brutto</p>
+              <p className={cn('text-lg font-bold leading-tight tabular-nums text-slate-900 transition-opacity', !quote && 'opacity-60')}>
+                {shownSummary ? formatEuro(shownSummary.total) : '…'}
               </p>
-              <p className="text-lg font-bold leading-tight tabular-nums text-slate-900">{formatEuro(totals.total)}</p>
             </div>
             <Button icon={ShoppingCart} onClick={onAddToCart}>
               In den Warenkorb
             </Button>
           </div>
-        </>
+        </StickyActionBar>
       ) : null}
 
       <PasteImportModal open={pasteOpen} onClose={() => setPasteOpen(false)} products={productsQ.data ?? []} initialText={pasteText} onApply={(list) => {

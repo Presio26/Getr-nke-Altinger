@@ -64,7 +64,9 @@ export default function InvoicesPage() {
   const terms = b2b?.paymentTermsDays ?? 14;
 
   const exportCsv = () => {
-    const rows: unknown[][] = [['Rechnungsnummer', 'Rechnungsdatum', 'Fällig am', 'Lieferungen', 'Netto (EUR)', 'MwSt. (EUR)', 'Pfand (EUR)', 'Leergut (EUR)', 'Brutto (EUR)', 'Status']];
+    const rows: unknown[][] = [
+      ['Rechnungsnummer', 'Rechnungsdatum', 'Fällig am', 'Lieferungen', 'Netto Ware & Gebühren (EUR)', 'Pfand netto (EUR)', 'Leergut netto (EUR)', 'MwSt. (EUR)', 'Brutto (EUR)', 'Status'],
+    ];
     for (const i of visible) {
       rows.push([
         i.number,
@@ -72,9 +74,9 @@ export default function InvoicesPage() {
         formatDate(i.dueDate, 'short'),
         i.orderIds.length,
         i.net / 100,
-        i.vat / 100,
         i.deposit / 100,
         -i.depositRefund / 100,
+        i.vat / 100,
         i.gross / 100,
         INVOICE_STATUS_LABEL[i.status],
       ]);
@@ -235,13 +237,13 @@ export default function InvoicesPage() {
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th scope="col" className="px-5 py-3">Rechnung</th>
-                    <th scope="col" className="px-4 py-3">Datum</th>
-                    <th scope="col" className="px-4 py-3">Fällig am</th>
-                    <th scope="col" className="px-4 py-3 text-right">Netto</th>
-                    <th scope="col" className="px-4 py-3 text-right">Betrag</th>
-                    <th scope="col" className="px-4 py-3">Status</th>
-                    <th scope="col" className="w-10 px-3 py-3">
+                    <th scope="col" className="px-4 py-3 lg:px-5">Rechnung</th>
+                    <th scope="col" className="px-3 py-3 lg:px-4">Datum</th>
+                    <th scope="col" className="px-3 py-3 lg:px-4">Fällig am</th>
+                    <th scope="col" className="hidden px-4 py-3 text-right lg:table-cell">Netto</th>
+                    <th scope="col" className="px-3 py-3 text-right lg:px-4">Betrag</th>
+                    <th scope="col" className="px-3 py-3 lg:px-4">Status</th>
+                    <th scope="col" className="hidden w-10 px-3 py-3 lg:table-cell">
                       <span className="sr-only">Öffnen</span>
                     </th>
                   </tr>
@@ -253,12 +255,14 @@ export default function InvoicesPage() {
                 </tbody>
                 <tfoot className="border-t border-slate-200 bg-slate-50/60">
                   <tr>
-                    <td colSpan={4} className="px-5 py-3 text-sm text-slate-500">
+                    <td colSpan={3} className="px-4 py-3 text-sm text-slate-500 lg:px-5">
                       {visible.length} {visible.length === 1 ? 'Rechnung' : 'Rechnungen'}
                       {filter !== 'all' || q ? ' (gefiltert)' : ''}
                     </td>
-                    <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-900">{formatEuro(visibleSum)}</td>
-                    <td colSpan={2} />
+                    <td className="hidden lg:table-cell" />
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-bold tabular-nums text-slate-900 lg:px-4">{formatEuro(visibleSum)}</td>
+                    <td />
+                    <td className="hidden lg:table-cell" />
                   </tr>
                 </tfoot>
               </table>
@@ -324,40 +328,44 @@ function InvoiceTableRow({ invoice: inv, now, onOpen }: { invoice: Invoice; now:
       tabIndex={0}
       className="cursor-pointer transition-colors hover:bg-slate-50 focus-visible:bg-brand-50/50 focus-visible:outline-none"
     >
-      <td className="px-5 py-3.5">
+      <td className="px-4 py-3.5 lg:px-5">
         <span className="flex items-center gap-3">
           <span
             className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
+              'hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl lg:flex',
               inv.status === 'overdue' ? 'bg-red-50 text-red-600' : inv.status === 'paid' ? 'bg-emerald-50 text-emerald-600' : 'bg-brand-50 text-brand-700',
             )}
           >
             <FileText size={17} aria-hidden />
           </span>
           <span>
-            <Link to={`/business/rechnungen/${inv.id}`} onClick={(e) => e.stopPropagation()} className="block font-semibold tabular-nums text-slate-900 hover:text-brand-700">
+            <Link
+              to={`/business/rechnungen/${inv.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="block whitespace-nowrap font-semibold tabular-nums text-slate-900 hover:text-brand-700"
+            >
               {inv.number}
             </Link>
-            <span className="block text-xs text-slate-500">
+            <span className="block whitespace-nowrap text-xs text-slate-500">
               {inv.orderIds.length} {inv.orderIds.length === 1 ? 'Lieferung' : 'Lieferungen'}
             </span>
           </span>
         </span>
       </td>
-      <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-700">{formatDate(inv.date, 'short')}</td>
-      <td className="whitespace-nowrap px-4 py-3.5">
+      <td className="whitespace-nowrap px-3 py-3.5 tabular-nums text-slate-700 lg:px-4">{formatDate(inv.date, 'short')}</td>
+      <td className="whitespace-nowrap px-3 py-3.5 lg:px-4">
         <span className="block tabular-nums text-slate-700">{formatDate(inv.dueDate, 'short')}</span>
         <span className={cn('flex items-center gap-1 text-xs', inv.status === 'overdue' ? 'font-semibold text-red-600' : 'text-slate-500')}>
           {inv.status === 'open' ? <Clock size={12} aria-hidden /> : null}
           {dueText(inv, now)}
         </span>
       </td>
-      <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-slate-600">{formatEuro(inv.net)}</td>
-      <td className="whitespace-nowrap px-4 py-3.5 text-right font-semibold tabular-nums text-slate-900">{formatEuro(inv.gross)}</td>
-      <td className="px-4 py-3.5">
-        <InvoiceStatusBadge status={inv.status} />
+      <td className="hidden whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-slate-600 lg:table-cell">{formatEuro(inv.net)}</td>
+      <td className="whitespace-nowrap px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900 lg:px-4">{formatEuro(inv.gross)}</td>
+      <td className="px-3 py-3.5 lg:px-4">
+        <InvoiceStatusBadge status={inv.status} className="whitespace-nowrap" />
       </td>
-      <td className="px-3 py-3.5 text-slate-300">
+      <td className="hidden px-3 py-3.5 text-slate-300 lg:table-cell">
         <ChevronRight size={18} aria-hidden />
       </td>
     </tr>

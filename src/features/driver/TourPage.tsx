@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ClipboardList, Gauge, ListOrdered, Route, SearchX } from 'lucide-react';
+import { ClipboardList, Gauge, Home, ListOrdered, Route, SearchX } from 'lucide-react';
 import { formatDate, formatDistance, formatDuration, TOUR_STATUS_LABEL } from '@shared/format';
 import { useDriverToday } from '@/api/hooks';
 import { useMediaQuery, useNow } from '@/lib/hooks';
@@ -10,7 +10,7 @@ import { TourMap } from './components/TourMap';
 import { StopsList } from './components/StopsList';
 import { LoadList, useLoadChecks } from './components/LoadList';
 import { TourOverview } from './components/TourOverview';
-import { GpsShareCard, SimulationCard, SimulationMapBadge, TourActionCard } from './components/TourControls';
+import { GpsShareCard, SimulationCard, SimulationMapBadge, SimulationWaitNotice, TourActionCard } from './components/TourControls';
 
 const TOUR_TONE: Record<string, BadgeTone> = { planned: 'brand', active: 'accent', completed: 'success' };
 type TabId = 'stopps' | 'ladeliste' | 'uebersicht';
@@ -58,20 +58,35 @@ export default function TourPage() {
     return (
       <>
         <PageHeader title="Tour" back="/fahrer" />
-        <ErrorState error={error} onRetry={() => void refetch()} />
+        <Card padding="none">
+          <ErrorState error={error} onRetry={() => void refetch()} />
+        </Card>
       </>
     );
   }
   if (!tour) {
+    const active = data?.tours.find((t) => t.status === 'active');
+    // Nicht gefunden – gleiches Muster wie im Shop: Seitenüberschrift (h1) + EmptyState mit Aktionen
     return (
       <>
-        <PageHeader title="Tour" back="/fahrer" />
-        <Card>
+        <PageHeader title="Tour nicht gefunden" back="/fahrer" />
+        <Card padding="none">
           <EmptyState
             icon={SearchX}
-            title="Tour nicht gefunden"
-            description="Diese Tour ist Ihnen heute nicht (mehr) zugewiesen. Möglicherweise wurde sie vom Markt geändert."
-            action={<ButtonLink to="/fahrer">Zur Tagesübersicht</ButtonLink>}
+            title="Diese Tour gibt es nicht – oder sie ist Ihnen heute nicht zugewiesen"
+            description="Möglicherweise wurde sie vom Markt geändert. Ihre Touren für heute finden Sie in der Tagesübersicht."
+            action={
+              <>
+                <ButtonLink to="/fahrer" icon={Home}>
+                  Zur Tagesübersicht
+                </ButtonLink>
+                {active ? (
+                  <ButtonLink to={`/fahrer/tour/${active.id}`} variant="outline" icon={ListOrdered}>
+                    Zur laufenden Tour
+                  </ButtonLink>
+                ) : null}
+              </>
+            }
           />
         </Card>
       </>
@@ -97,6 +112,7 @@ export default function TourPage() {
   return (
     <div className="pb-14 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:items-start lg:gap-6 lg:pb-0">
       <PageHeader title={tour.name} subtitle={subtitle} back="/fahrer" className="mb-4 lg:col-span-2 lg:mb-0" />
+      <SimulationWaitNotice tour={tour} className="mb-4 lg:col-span-2 lg:mb-0" />
 
       <div className="lg:sticky lg:top-24">
         <TourMap

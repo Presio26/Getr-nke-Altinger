@@ -3,16 +3,19 @@
  * Der aktuelle Stopp ist hervorgehoben; jeder Eintrag öffnet die Stopp-Seite.
  */
 import { Link } from 'react-router-dom';
-import { ChevronRight, Clock, Package, Recycle, Route as RouteIcon } from 'lucide-react';
+import { ChevronRight, Clock, IdCard, Package, Recycle, Route as RouteIcon } from 'lucide-react';
 import type { TourWithOrders } from '@shared/types';
 import { formatDistance, formatDuration, formatTime, STOP_STATUS_LABEL } from '@shared/format';
 import { cn } from '@/lib/cn';
+import { useDepositTypes, useProductMap } from '@/api/hooks';
 import { Badge } from '@/components/ui';
-import { crateCount, currentStopIndex, emptiesCount, STOP_TONE } from '../lib/driverUtils';
+import { ageCheck, crateCount, currentStopIndex, emptiesLabel, STOP_TONE } from '../lib/driverUtils';
 import { PaymentChip, StopFlags, StopNumber } from './StopBits';
 
 export function StopsList({ tour }: { tour: TourWithOrders }) {
   const current = currentStopIndex(tour);
+  const types = useDepositTypes();
+  const productMap = useProductMap();
   const legs = tour.route?.legs ?? [];
   const returnLeg = legs[tour.stops.length];
 
@@ -24,7 +27,8 @@ export function StopsList({ tour }: { tour: TourWithOrders }) {
         const isCurrent = i === current && tour.status !== 'completed';
         const done = stop.status === 'delivered' || stop.status === 'failed';
         const leg = legs[i];
-        const empties = emptiesCount(order.emptiesReturn);
+        const empties = order.emptiesReturn.some((l) => l.qty > 0) ? emptiesLabel(order.emptiesReturn, types) : null;
+        const age = done ? null : ageCheck(order, productMap);
         return (
           <li key={stop.orderId}>
             {leg ? (
@@ -70,13 +74,19 @@ export function StopsList({ tour }: { tour: TourWithOrders }) {
                   {empties ? (
                     <span className="inline-flex items-center gap-1">
                       <Recycle size={14} aria-hidden />
-                      {empties} Leergut
+                      Leergut: {empties}
                     </span>
                   ) : null}
                 </div>
                 {!done ? (
                   <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                     <PaymentChip order={order} />
+                    {age ? (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-[13px] font-semibold text-red-800 ring-1 ring-inset ring-red-200">
+                        <IdCard size={14} aria-hidden />
+                        Alter prüfen · ab {age.minAge}
+                      </span>
+                    ) : null}
                     <StopFlags order={order} className="contents" />
                   </div>
                 ) : stop.status === 'failed' && order.failureReason ? (

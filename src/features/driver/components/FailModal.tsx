@@ -2,7 +2,7 @@
  * Problem melden: Zustellung fehlgeschlagen mit Grund + Freitext (api.failDelivery).
  */
 import { useEffect, useState } from 'react';
-import { Ban, MapPinOff, MoreHorizontal, TriangleAlert, UserX } from 'lucide-react';
+import { Ban, IdCard, MapPinOff, MoreHorizontal, TriangleAlert, UserX } from 'lucide-react';
 import { Button, Modal, RadioCards, Textarea } from '@/components/ui';
 
 export const FAIL_REASONS = [
@@ -12,15 +12,20 @@ export const FAIL_REASONS = [
   { value: 'Sonstiges', description: 'Bitte kurz beschreiben', icon: MoreHorizontal },
 ] as const;
 
+/** Zusätzlicher Grund bei alkoholischen Getränken (Jugendschutz) */
+export const AGE_FAIL_REASON = 'Alterskontrolle nicht bestanden';
+
 export interface FailModalProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (reason: string) => void;
   loading?: boolean;
   customerName: string;
+  /** Mindestalter, falls die Lieferung alkoholische Getränke enthält (Grund „Alterskontrolle“) */
+  ageLimit?: number;
 }
 
-export function FailModal({ open, onClose, onSubmit, loading = false, customerName }: FailModalProps) {
+export function FailModal({ open, onClose, onSubmit, loading = false, customerName, ageLimit }: FailModalProps) {
   const [reason, setReason] = useState<string>(FAIL_REASONS[0].value);
   const [text, setText] = useState('');
   const [touched, setTouched] = useState(false);
@@ -67,7 +72,13 @@ export function FailModal({ open, onClose, onSubmit, loading = false, customerNa
           value={reason}
           onChange={setReason}
           columns={2}
-          options={FAIL_REASONS.map((r) => ({ value: r.value, title: r.value, description: r.description, icon: r.icon }))}
+          options={[
+            ...FAIL_REASONS.filter((r) => r.value !== 'Sonstiges').map((r) => ({ value: r.value as string, title: r.value, description: r.description, icon: r.icon })),
+            ...(ageLimit
+              ? [{ value: AGE_FAIL_REASON, title: AGE_FAIL_REASON, description: `Kein Ausweis oder jünger als ${ageLimit} – Alkohol nicht übergeben`, icon: IdCard }]
+              : []),
+            ...FAIL_REASONS.filter((r) => r.value === 'Sonstiges').map((r) => ({ value: r.value as string, title: r.value, description: r.description, icon: r.icon })),
+          ]}
         />
         <Textarea
           label={needsText ? 'Beschreibung' : 'Ergänzung (optional)'}
