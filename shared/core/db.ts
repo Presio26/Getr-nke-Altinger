@@ -51,6 +51,11 @@ export interface Db {
   subscriptions: Subscription[];
   invoices: Invoice[];
   notifications: AppNotification[];
+  /**
+   * Demo-Modus: neue Bestellungen, die der Core nach kurzer Zeit automatisch bestätigt
+   * (abgearbeitet in Core.tick(), damit es auch nach einem Neustart weiterläuft).
+   */
+  autoConfirm?: { orderId: ID; at: ISODate }[];
 }
 
 /** Neue, eindeutige ID mit Präfix, z. B. nextId(db, 'o') → "o-1x7k2" */

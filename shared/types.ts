@@ -349,6 +349,8 @@ export interface StoreSettings {
   zones: DeliveryZone[];
   /** Bestellschluss vor Beginn eines Zeitfensters in Minuten */
   orderCutoffMinutes: number;
+  /** Bestellschluss für Abholfenster in Minuten (Default 30) */
+  pickupCutoffMinutes?: number;
   /** Wie lange eine Click-&-Collect-Reservierung gehalten wird (Stunden) */
   pickupHoldHours: number;
   /** Tragservice (bis in die Wohnung) brutto in Cent pro Bestellung */
@@ -669,6 +671,8 @@ export interface TourSimulation {
   progressM: number;
   /** wartet am Stopp bis zu diesem Zeitpunkt */
   dwellUntil?: ISODate;
+  /** Zeitpunkt des letzten Simulationsschritts (für zeitbasierten Fortschritt) */
+  lastTickAt?: ISODate;
 }
 
 export interface Tour {
@@ -762,7 +766,9 @@ export interface Stats {
     openPickups: number;
     deliveredToday: number;
   };
+  /** Anzahl Bestellungen im Zeitraum je Lieferart */
   byFulfillment: { delivery: number; pickup: number };
+  /** Anzahl Bestellungen im Zeitraum je Kundenart (Umsatz je Kundenart: revenueByDay) */
   byCustomerType: { b2c: number; b2b: number };
   topProducts: { productId: ID; name: string; qty: number; revenue: number }[];
   byCategory: { categoryId: ID; name: string; revenue: number }[];
@@ -774,7 +780,9 @@ export interface Stats {
   ratingAvg: number;
   ratingCount: number;
   newCustomers: number;
+  /** Summe aller unbezahlten Rechnungen (offen + überfällig), Cent */
   openInvoicesAmount: number;
+  /** davon überfällig, Cent */
   overdueInvoicesAmount: number;
 }
 
