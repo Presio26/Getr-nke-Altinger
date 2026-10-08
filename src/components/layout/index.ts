@@ -8,3 +8,4 @@ export { Footer, telHref } from './Footer';
 export { NotificationBell, NotificationItem } from './NotificationBell';
 export { AccountMenu } from './AccountMenu';
 export { ConnectionIndicator, GpsIndicator } from './StatusIndicators';
+export { StickyActionBar, type StickyActionBarProps } from './StickyActionBar';
