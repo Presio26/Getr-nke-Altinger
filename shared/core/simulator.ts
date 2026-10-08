@@ -163,16 +163,19 @@ export function initSimulation(
   options: { speedFactor: number; autoComplete: boolean },
 ): void {
   const prev = tour.simulation;
-  const legIndex = prev && prev.legIndex <= tour.stops.length ? prev.legIndex : Math.min(tour.currentStopIndex, tour.stops.length);
+  const current = Math.min(tour.currentStopIndex, tour.stops.length);
+  // Der frühere Fortschritt gilt nur, wenn er nicht hinter dem aktuellen Stopp liegt (inzwischen manuell
+  // zugestellte Stopps würden sonst erneut abgefahren, der Marker spränge zurück)
+  const resume = !!prev && prev.legIndex <= tour.stops.length && prev.legIndex >= current;
   const sim: NonNullable<Tour['simulation']> = {
     running: true,
     speedFactor: options.speedFactor,
     autoComplete: options.autoComplete,
-    legIndex,
-    progressM: prev ? prev.progressM : 0,
+    legIndex: resume && prev ? prev.legIndex : current,
+    progressM: resume && prev ? prev.progressM : 0,
     lastTickAt: now.toISOString(),
   };
-  if (prev?.dwellUntil) sim.dwellUntil = prev.dwellUntil;
+  if (resume && prev?.dwellUntil) sim.dwellUntil = prev.dwellUntil;
   // Ein bereits „angekommener“ Stopp wartet am Ziel des Abschnitts
   const stop = tour.stops[sim.legIndex];
   const leg = tour.route?.legs[sim.legIndex];

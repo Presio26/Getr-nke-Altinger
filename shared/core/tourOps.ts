@@ -466,19 +466,30 @@ export function detachOrderFromTour(e: Engine, order: Order, options: { emit?: b
   const idx = stopIndexOf(tour, order.id);
   if (idx < 0) return tour;
   tour.stops.splice(idx, 1);
+  const sim = tour.simulation;
+  let simHandled = false;
   if (tour.route) {
     const legs = [...tour.route.legs];
     if (tour.stops.length === 0) {
       tour.route = { legs: [], distance: 0, duration: 0 };
     } else if (legs.length >= idx + 2) {
       const a = legs[idx];
-      const b = legs[idx + 1];
-      const merged: RouteLeg = { coords: [...a.coords, ...b.coords.slice(1)], distance: a.distance + b.distance, duration: a.duration + b.duration };
-      legs.splice(idx, 2, merged);
+      legs.splice(idx, 2, joinLegs(a, legs[idx + 1]));
       tour.route = summarizeRoute(legs);
+      // Simulationsfortschritt auf den verbundenen Abschnitt (erst a, dann b) umrechnen
+      if (sim && sim.legIndex === idx && sim.dwellUntil) {
+        // wartete am entfernten Stopp → von dort weiterfahren (keine Standzeit, keine Zustellung des nächsten Stopps)
+        delete sim.dwellUntil;
+        sim.progressM = a.distance;
+      } else if (sim && sim.legIndex === idx + 1) {
+        // schon hinter dem entfernten Stopp unterwegs → gleiche Position auf dem verbundenen Abschnitt
+        sim.legIndex = idx;
+        sim.progressM += a.distance;
+      }
+      simHandled = !!sim && sim.legIndex <= idx;
     }
   }
-  if (tour.simulation && tour.simulation.legIndex > idx) tour.simulation.legIndex -= 1;
+  if (sim && !simHandled && sim.legIndex > idx) sim.legIndex -= 1;
   tour.currentStopIndex = tour.status === 'active' ? nextOpenStopIndex(tour, Math.min(idx, tour.stops.length) - 1) : Math.min(tour.currentStopIndex, tour.stops.length);
   if (tour.status !== 'completed') recomputeEtas(e, tour, options.now ?? e.now());
   if (options.emit !== false) emitTour(e, tour);

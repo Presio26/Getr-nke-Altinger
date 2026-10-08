@@ -153,7 +153,9 @@ describe('calculateQuote', () => {
     expect(q.totals.deliveryFee).toBe(490);
     expect(q.totals.carryFee).toBe(390);
     const fees = 490 + 390;
-    const vat19 = ((g19 - 300 * (g19 / goods) + fees * (g19 / goods)) * 19) / 119;
+    // Pfand (2 × 3,10 € auf 19-%-Ware) ist Teil des Entgelts und wird mit 19 % versteuert
+    expect(q.totals.deposit).toBe(2 * 310);
+    const vat19 = ((g19 - 300 * (g19 / goods) + fees * (g19 / goods) + 2 * 310) * 19) / 119;
     const vat7 = ((g7 - 300 * (g7 / goods) + fees * (g7 / goods)) * 7) / 107;
     expect(q.totals.vat).toBe(Math.round(vat19 + vat7));
     expect(q.totals.total).toBe(goods - 300 + q.totals.deposit + fees);

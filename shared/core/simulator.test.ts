@@ -137,6 +137,8 @@ describe('Demo-Simulation', () => {
     expect(planned.tour).toMatchObject({ status: 'planned', stopIndex: 3, stopsBefore: 3 });
     expect(planned.store.phone).toBe('089 3202562');
     expect(planned.driver?.name).toBe('Toni Huber');
+    // Datenschutz: keine Route über die Adressen der Stopps davor
+    expect(planned.tour?.routeToCustomer).toBeUndefined();
     await admin.simulateTour('t-1', { speedFactor: 2 });
     t.tickSeconds(5);
     const a = await gasthaus.getTracking(order.id);
@@ -145,7 +147,16 @@ describe('Demo-Simulation', () => {
     expect(a.etaMinutes!).toBeGreaterThan(0);
     expect(b.etaMinutes!).toBeLessThanOrEqual(a.etaMinutes!);
     expect(b.tour!.stopsBefore).toBeLessThan(3);
-    expect(b.tour!.routeToCustomer!.length).toBeLessThan(a.tour!.routeToCustomer!.length + 1);
+    expect(a.tour!.routeToCustomer).toBeUndefined();
+    expect(b.tour!.routeToCustomer).toBeUndefined();
+    // erst auf dem Abschnitt zum eigenen Stopp gibt es die Restroute
+    const tour = () => t.db().tours.find((x) => x.id === 't-1')!;
+    for (let i = 0; i < 120 && tour().simulation!.legIndex < 3; i++) t.tickSeconds(5);
+    t.tickSeconds(2);
+    const c = await gasthaus.getTracking(order.id);
+    expect(c.tour!.stopsBefore).toBe(0);
+    expect(c.tour!.routeToCustomer!.length).toBeGreaterThan(1);
+    expect(c.etaMinutes!).toBeLessThanOrEqual(b.etaMinutes!);
   });
 
   it('Fahrer-Ablauf manuell: Ankunft, Fehlschlag, Abschluss', async () => {

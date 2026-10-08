@@ -79,8 +79,11 @@ export const MAX_STOPS_PER_TOUR = 8;
 
 /**
  * Verteilt Lieferungen eines Tages: je Zeitfenster werden die Aufträge nach Himmelsrichtung
- * (vom Markt aus) sortiert und so in Gruppen geteilt, dass Kapazität und Stoppzahl passen.
- * Fahrer mit den wenigsten Touren des Tages werden bevorzugt.
+ * (vom Markt aus) sortiert und der Reihe nach in Gruppen geschnitten – jede Gruppe höchstens so viele
+ * Kästen, wie das Fahrzeug ihres Fahrers fasst, und höchstens MAX_STOPS_PER_TOUR Stopps.
+ * Reichen die Fahrer eines Fensters nicht, entsteht eine weitere Tour (statt die Kapazität zu überschreiten).
+ * Bevorzugt werden Fahrer, die im Fenster noch frei sind, deren Fahrzeug den nächsten Auftrag fasst
+ * und die die wenigsten Touren des Tages haben.
  */
 export function distributeOrders(
   store: GeoPoint,
@@ -91,6 +94,8 @@ export function distributeOrders(
   if (!drivers.length || !orders.length) return [];
   const load: Record<string, number> = { ...existingToursPerDriver };
   for (const d of drivers) load[d.id] = load[d.id] ?? 0;
+  const capacityOf = (d: Driver) => d.capacityCrates || 60;
+  const maxCapacity = Math.max(...drivers.map(capacityOf));
   const byWindow = new Map<string, Order[]>();
   for (const o of orders) {
     const key = `${o.slot.start}-${o.slot.end}`;
@@ -98,22 +103,35 @@ export function distributeOrders(
   }
   const groups: PlannedGroup[] = [];
   for (const key of [...byWindow.keys()].sort()) {
-    const list = byWindow.get(key)!;
     const [slotStart, slotEnd] = key.split('-');
-    const crates = list.reduce((s, o) => s + orderCrates(o), 0);
-    const maxCapacity = Math.max(...drivers.map((d) => d.capacityCrates || 60));
-    const needed = Math.max(1, Math.ceil(crates / maxCapacity), Math.ceil(list.length / MAX_STOPS_PER_TOUR));
-    const k = Math.min(needed, drivers.length, list.length);
-    // nach Richtung sortieren (Sweep), dann gleichmäßig aufteilen
-    const sorted = [...list].sort((a, b) => angleOf(store, a) - angleOf(store, b));
-    const chunkSize = Math.ceil(sorted.length / k);
-    const chosen = [...drivers]
-      .sort((a, b) => load[a.id] - load[b.id] || (b.capacityCrates ?? 0) - (a.capacityCrates ?? 0) || a.name.localeCompare(b.name))
-      .slice(0, k);
-    for (let i = 0; i < k; i++) {
-      const part = sorted.slice(i * chunkSize, (i + 1) * chunkSize);
-      if (!part.length) continue;
-      const driver = chosen[i];
+    // nach Richtung sortieren (Sweep), dann der Reihe nach schneiden
+    const sorted = [...byWindow.get(key)!].sort((a, b) => angleOf(store, a) - angleOf(store, b));
+    const used = new Set<string>();
+    let i = 0;
+    while (i < sorted.length) {
+      const nextCrates = orderCrates(sorted[i]);
+      const rank = (d: Driver) => [Number(used.has(d.id)), Number(capacityOf(d) < nextCrates), load[d.id]];
+      const driver = [...drivers].sort((a, b) => {
+        const ra = rank(a);
+        const rb = rank(b);
+        return ra[0] - rb[0] || ra[1] - rb[1] || ra[2] - rb[2] || capacityOf(b) - capacityOf(a) || a.name.localeCompare(b.name);
+      })[0];
+      // gleichmäßig auf die nötigen Touren verteilen (Stoppzahl), Kästen höchstens bis zur Fahrzeugkapazität
+      const rest = sorted.slice(i);
+      const restCrates = rest.reduce((s, o) => s + orderCrates(o), 0);
+      const needed = Math.max(1, Math.ceil(restCrates / maxCapacity), Math.ceil(rest.length / MAX_STOPS_PER_TOUR));
+      const maxStops = Math.min(MAX_STOPS_PER_TOUR, Math.ceil(rest.length / needed));
+      const part: Order[] = [];
+      let crates = 0;
+      while (i < sorted.length && part.length < maxStops) {
+        const c = orderCrates(sorted[i]);
+        // mindestens ein Auftrag je Tour (ein einzelner zu großer Auftrag lässt sich nicht teilen)
+        if (part.length && crates + c > capacityOf(driver)) break;
+        part.push(sorted[i]);
+        crates += c;
+        i++;
+      }
+      used.add(driver.id);
       load[driver.id] += 1;
       groups.push({ driverId: driver.id, slotStart, slotEnd, orders: part });
     }

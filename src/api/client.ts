@@ -6,7 +6,10 @@
  *  - `realtime`   Echtzeit-Ereignisse + Verbindungsstatus (modusunabhängig)
  *
  * Moduswahl (docs/ARCHITECTURE.md §3): VITE_API_MODE = remote | local | auto (Default auto).
- * auto: GET /api/health mit 2,5 s Timeout → Erfolg = remote, sonst local.
+ * auto: GET /api/health mit 2,5 s Timeout → Erfolg = remote; eindeutig kein Server (404, HTML eines
+ * Static-Hostings) = local. Ist der Server nur gerade nicht erreichbar (Netz weg, Kaltstart, 5xx), bleibt es
+ * bei remote, sobald auf diesem Gerät schon einmal ein Server geantwortet hat (bzw. VITE_API_URL gesetzt
+ * ist) – sonst liefen z. B. Fahrer-Zustellungen still in lokale Demo-Daten statt zum Markt.
  * Zusätzlich (nur bei auto) lässt sich der Modus für Demos per URL erzwingen: `?api=local` bzw. `?api=remote`
  * (gilt für die Browser-Sitzung).
  *
@@ -48,6 +51,8 @@ export interface TransportInit {
 export const NETWORK_ERROR_MESSAGE = 'Keine Verbindung zum Server. Bitte prüfen Sie Ihre Internetverbindung.';
 const HEALTH_TIMEOUT_MS = 2500;
 const MODE_OVERRIDE_KEY = 'altinger-api-mode';
+/** localStorage: Ergebnis der letzten eindeutigen Server-Prüfung ('remote' | 'none') */
+const SERVER_SEEN_KEY = 'altinger-api-server';
 
 // ───────────────────────────── Konfiguration ─────────────────────────────
 
@@ -81,6 +86,24 @@ function urlModeOverride(): ApiMode | null {
     return stored === 'local' || stored === 'remote' ? stored : null;
   } catch {
     return null;
+  }
+}
+
+/** Merkt sich, ob es hinter dieser App einen Server gibt (überlebt Neustarts der PWA) */
+function rememberServer(value: 'remote' | 'none'): void {
+  try {
+    globalThis.localStorage?.setItem(SERVER_SEEN_KEY, value);
+  } catch {
+    /* privater Modus o. Ä. – dann eben ohne Gedächtnis */
+  }
+}
+
+function serverKnown(): boolean {
+  if (API_BASE_URL) return true;
+  try {
+    return globalThis.localStorage?.getItem(SERVER_SEEN_KEY) === 'remote';
+  } catch {
+    return false;
   }
 }
 
@@ -145,22 +168,46 @@ async function probeHealth(timeoutMs: number): Promise<HealthProbe> {
   }
 }
 
+/** Ergebnis der Server-Prüfung: erreichbar, eindeutig kein Server, oder (vorübergehend) nicht erreichbar */
+export type ServerCheck = 'remote' | 'no-server' | 'unreachable';
+
 /**
  * Prüft, ob der Node-Server erreichbar ist (GET /api/health, insgesamt höchstens 2,5 s).
- * Vorübergehende Fehler (Netzwerk, 5xx) werden innerhalb der Frist wiederholt; eine eindeutige
- * Antwort ohne Server (404, HTML eines Static-Hostings) führt sofort zu false.
+ * Vorübergehende Fehler (Netzwerk, 5xx) werden innerhalb der Frist wiederholt ('unreachable');
+ * eine eindeutige Antwort ohne Server (404, HTML eines Static-Hostings) führt sofort zu 'no-server'.
  */
-export async function checkServerHealth(timeoutMs = HEALTH_TIMEOUT_MS): Promise<boolean> {
-  if (typeof fetch === 'undefined') return false;
+export async function probeServer(timeoutMs = HEALTH_TIMEOUT_MS): Promise<ServerCheck> {
+  if (typeof fetch === 'undefined') return 'no-server';
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = deadline - Date.now();
-    if (remaining <= 50) return false;
+    if (remaining <= 50) return 'unreachable';
     const result = await probeHealth(remaining);
-    if (result !== 'retry') return result === 'ok';
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    if (result === 'ok') return 'remote';
+    if (result === 'no-server') return 'no-server';
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'unreachable';
     await new Promise((resolve) => setTimeout(resolve, Math.min(400, Math.max(0, deadline - Date.now()))));
   }
+}
+
+/** true, wenn der Node-Server gerade erreichbar ist */
+export async function checkServerHealth(timeoutMs = HEALTH_TIMEOUT_MS): Promise<boolean> {
+  return (await probeServer(timeoutMs)) === 'remote';
+}
+
+/** auto-Modus: remote/local aus der Server-Prüfung (siehe Kopfkommentar) */
+async function detectMode(): Promise<{ target: ApiMode; reachable: boolean }> {
+  const check = await probeServer();
+  if (check === 'remote') {
+    rememberServer('remote');
+    return { target: 'remote', reachable: true };
+  }
+  if (check === 'no-server') {
+    rememberServer('none');
+    return { target: 'local', reachable: false };
+  }
+  // nur vorübergehend nicht erreichbar: bei bekanntem Server nicht still auf lokale Daten wechseln
+  return { target: serverKnown() ? 'remote' : 'local', reachable: false };
 }
 
 async function createTransport(target: ApiMode): Promise<Transport> {
@@ -177,11 +224,18 @@ async function createTransport(target: ApiMode): Promise<Transport> {
 async function doInit(): Promise<ApiMode> {
   const configured = configuredMode();
   let target: ApiMode;
+  let reachable = true;
   if (configured !== 'auto') target = configured;
-  else target = urlModeOverride() ?? ((await checkServerHealth()) ? 'remote' : 'local');
+  else {
+    const override = urlModeOverride();
+    if (override) target = override;
+    else ({ target, reachable } = await detectMode());
+  }
 
   mode = target;
   if (target === 'local') hooks.onStatus('online');
+  // Server bekannt, aber gerade nicht erreichbar: offline anzeigen (socket.io verbindet sich selbst neu)
+  else if (!reachable) hooks.onStatus('offline');
   transport = await createTransport(target);
   // Token könnte sich während des Ladens geändert haben
   transport.setToken(authToken);

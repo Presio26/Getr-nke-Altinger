@@ -61,7 +61,8 @@ Die App läuft in zwei Modi – **gleiche Oberfläche, gleicher Core**:
    + `storage`-Event. Ideal für eine Offline-Demo auf einem Gerät.
 
 Moduswahl in `src/api/client.ts` → `initApi()`: `import.meta.env.VITE_API_MODE` = `remote` | `local` | `auto` (Default `auto`:
-`GET /api/health` mit 2,5 s Timeout; Erfolg → remote, sonst local).
+`GET /api/health` mit 2,5 s Timeout; Erfolg → remote, eindeutig kein Server (404/HTML) → local; nur vorübergehend nicht
+erreichbar → remote mit Status „offline“, sofern auf dem Gerät schon einmal ein Server geantwortet hat, sonst local).
 
 ## 4. Verzeichnisstruktur & Modulgrenzen
 
@@ -162,7 +163,9 @@ Berechtigungen prüft **ausschließlich der Core** (Ctx.user.role). Ein Kunde si
 
 Echtzeit-Zielgruppen (`Audience`): Bestelländerungen → `{ admin: true, customerIds: [order.customerId], driverIds: [order.driverId] }`;
 Fahrerposition → `{ admin: true, driverIds: [driverId], customerIds: [Kunden mit Auftrag out_for_delivery auf der aktiven Tour] }`;
-Produktänderungen → `{ all: true }`.
+Touränderungen → vollständig an `{ admin: true, driverIds: [tour.driverId] }`, Kunden der Tour nur eine Tour ohne Stopps/Route (Anstoß zum Neuladen);
+Produktänderungen → `{ all: true }`. `getTracking` liefert Kunden die Fahrerposition nur, solange ihr Auftrag auf der aktiven Tour
+unterwegs ist, und die Restroute erst ab dem Abschnitt zum eigenen Stopp. Inaktive Gutscheine sehen nur Admins (Bootstrap, `settings.updated`).
 
 ### 4.2 Zeit & Zeitzone
 
@@ -174,7 +177,10 @@ Immer `shared/time.ts` verwenden, nie `new Date().toISOString().slice(0,10)` fü
 - Alle Beträge in **Cent** (Integer). `Product.priceGross` = B2C-Bruttopreis je Gebinde.
 - **B2C** sieht Bruttopreise, „zzgl. 3,10 € Pfand“, Grundpreis „1,99 €/l“ (Preisangabenverordnung).
 - **B2B** sieht **Nettopreise** (+ MwSt. im Warenkorb), Gruppenrabatt (`b2b.discountPercent`) bzw. Staffelpreise (`tierPrices`) – der günstigste Preis gewinnt.
-- Pfand wird separat ausgewiesen; Leergut-Rückgabe wird gutgeschrieben (`depositRefund`).
+- Pfand wird separat ausgewiesen; Leergut-Rückgabe wird gutgeschrieben (`depositRefund`, je Art höchstens Leergut-Konto + gelieferte Gebinde).
+- MwSt. (`totals.vat`) enthält auch die MwSt. auf Pfand (Satz des Artikels); die Leergut-Gutschrift mindert sie (19 %).
+  Rechnungen: `net` (Ware + Gebühren) + `vat` + `deposit` − `depositRefund` = `gross`, Pfand/Leergut dort netto.
+- B2B-Preise (netto, Rabatt, Staffeln) erst nach Freischaltung (`b2b.status === 'active'`).
 - Einzige Wahrheit: `shared/core/pricing.ts` → `priceProduct(product, customer|null, qty, now)` und `calculateQuote(...)`.
   Die UI ruft für Produktkarten `usePrice(product, qty)` (Hook in `src/api/hooks.ts`) auf; für Warenkorb/Kasse `api.quote()`.
 
