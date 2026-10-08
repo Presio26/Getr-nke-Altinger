@@ -21,7 +21,7 @@ Rollen / Bereiche:
 | `driver`   | Fahrer-App         | `/fahrer`     | Handy (iPhone)  |
 | `admin`    | Markt-Dashboard    | `/admin`      | Desktop/Tablet  |
 
-Demo-Zugänge (Passwort immer `demo`, außerdem Ein-Klick-Login über den Demo-Umschalter):
+Demo-Zugänge (Passwort immer `demo`, außerdem Ein-Klick-Login über den Demo-Umschalter und `/demo?als=<user-id>`):
 
 | User-ID       | Rolle    | Name                          | E-Mail                         |
 |---------------|----------|-------------------------------|--------------------------------|
@@ -30,6 +30,7 @@ Demo-Zugänge (Passwort immer `demo`, außerdem Ein-Klick-Login über den Demo-U
 | `u-nordbyte`  | business | NordByte Software GmbH (Büro) | office@nordbyte.example        |
 | `u-toni`      | driver   | Toni Huber (Fahrer)           | toni@altinger.example          |
 | `u-lukas`     | driver   | Lukas Brandl (Fahrer)         | lukas@altinger.example         |
+| `u-ayse`      | driver   | Ayşe Demir (Fahrerin)         | ayse@altinger.example          |
 | `u-admin`     | admin    | Marktleitung                  | markt@altinger.example         |
 
 Alle Firmen-/Personennamen der Demo sind **fiktiv**. Markenartikel (Augustiner, Paulaner …) sind übliche
@@ -40,7 +41,7 @@ Sortimentsartikel eines bayerischen Getränkemarkts; Preise sind Demo-Werte.
 - **Frontend:** React 18.3, TypeScript 5.9 (strict), Vite 7, Tailwind CSS v4 (`@tailwindcss/vite`, Theme in `src/styles/index.css` via `@theme`),
   react-router-dom **6.30** (`createBrowserRouter`/`RouterProvider` oder `<Routes>` – v6-API!), @tanstack/react-query 5, zustand 5,
   lucide-react 0.577 (Icons), leaflet 1.9 + react-leaflet **4.2** (React-18-API), recharts **2.15**, date-fns 4 (`import { de } from 'date-fns/locale'`),
-  qrcode (QR-Erzeugung), clsx. PWA: vite-plugin-pwa 1.0 (Workbox, `registerType: 'autoUpdate'`).
+  qrcode (QR-Erzeugung), jsqr 1.4 (QR-Erkennung im Kamerabild, Abholungen), clsx. PWA: vite-plugin-pwa 1.0 (Workbox, `registerType: 'autoUpdate'`).
 - **Server:** Node 20+/22, Express **4** (nicht 5!), socket.io 4, ausgeführt mit `tsx` (kein separater Build). Persistenz: JSON-Datei `data/db.json`.
 - **Gemeinsamer Code:** `shared/` – läuft unverändert im Browser **und** in Node (keine DOM- oder Node-APIs; `fetch` ist erlaubt).
 - **Tests:** vitest (Core-Logik, `shared/**/*.test.ts`), Playwright 1.56 (E2E, `e2e/`). Chromium liegt unter `/opt/pw-browsers`.
@@ -60,9 +61,23 @@ Die App läuft in zwei Modi – **gleiche Oberfläche, gleicher Core**:
    Daten in `localStorage` (`altinger-db-v1`), Echtzeit zwischen Tabs per `BroadcastChannel('altinger-rt')`
    + `storage`-Event. Ideal für eine Offline-Demo auf einem Gerät.
 
-Moduswahl in `src/api/client.ts` → `initApi()`: `import.meta.env.VITE_API_MODE` = `remote` | `local` | `auto` (Default `auto`:
-`GET /api/health` mit 2,5 s Timeout; Erfolg → remote, eindeutig kein Server (404/HTML) → local; nur vorübergehend nicht
-erreichbar → remote mit Status „offline“, sofern auf dem Gerät schon einmal ein Server geantwortet hat, sonst local).
+Moduswahl in `src/api/client.ts` → `initApi()`: `import.meta.env.VITE_API_MODE` = `remote` | `local` | `auto` (Default `auto`):
+
+- `remote` / `local` (beim **Build** gesetzt) erzwingen den Modus. **Render und Docker bauen mit `VITE_API_MODE=remote`** –
+  Server und Oberfläche liegen zusammen, ein lokaler Modus ist dort ausgeschlossen (auch `?api=local` wirkt nicht).
+- `auto`: `GET /api/health` (insgesamt 2,5 s, vorübergehende Fehler werden wiederholt). Erfolg → remote; eindeutig kein
+  Server (404, HTML eines Static-Hostings) → local. Nur vorübergehend nicht erreichbar (Kaltstart, Funkloch, 5xx) → **remote**,
+  nie still lokal. Ausnahme: Gerät offline **und** hier noch nie ein Server gesehen (`localStorage` `altinger-api-server`) → local.
+  Zusätzlich nur bei `auto`: `?api=local|remote|auto` für den Tab (Demo/Plan B).
+- **Verbindungsbildschirm:** War der Server beim Start nicht erreichbar, wartet `App.tsx` bis zu 60 s mit „Verbinde mit Server …“
+  (`waitForServer`, Render-Kaltstart); bei `auto` mit Knopf „Offline-Demo starten“. Danach „Die App konnte nicht starten“ mit
+  „Erneut versuchen“.
+- **Offline-Banner:** `ConnectionBanner` (in allen Layouts) zeigt bei getrennter Echtzeit-Verbindung „Keine Verbindung zum Server –
+  wird automatisch erneut versucht“ (bzw. „Keine Internetverbindung …“), danach kurz „Wieder verbunden“; `RealtimeBridge` lädt
+  verpasste Änderungen nach. Im lokalen Modus: Hinweis „Lokaler Demo-Modus“ mit Wechsel zum Server, sobald einer erreichbar ist.
+- **Sitzung je Tab:** Das Token liegt im `sessionStorage` des Tabs (`altinger.token`), `localStorage` hält nur die zuletzt
+  ausdrücklich gewählte Anmeldung als Startwert für neue Tabs. Anna, Toni und Markt können so in Tabs nebeneinander laufen;
+  ein Login in Tab B schaltet Tab A nie um. Tokens des lokalen Modus liegen getrennt (`altinger.token.local`).
 
 ## 4. Verzeichnisstruktur & Modulgrenzen
 
@@ -74,16 +89,22 @@ shared/
   format.ts           Formatierung & Labels (Euro, Datum, Slot, Status-Texte …) – von UI & Rechnung genutzt
   core/
     index.ts          createCore(), createSeedDb(), Typ Db  ← Einstiegspunkt
-    db.ts             Db-Typ, Hilfsfunktionen (ids, seq)
-    pricing.ts        priceProduct(), calculateQuote() – reine Funktionen
-    slots.ts          Zeitfenster generieren/prüfen
+    db.ts, engine.ts  Db-Typ, Hilfsfunktionen (ids, seq), interner Laufzeit-Kontext
+    pricing.ts        priceProduct(), calculateQuote(), computeTotals() (MwSt.-Aufschlüsselung) – reine Funktionen
+    invoices.ts       Rechnungssummen (MwSt. je Satz auf die Netto-Summe), offene Posten
+    slots.ts          Zeitfenster generieren/prüfen (Bestellschluss, nächster freier Termin)
+    orderOps.ts, lifecycle.ts   Bestell-Lebenszyklus, Statuswechsel, Storno, Demo-Autobestätigung
+    tourOps.ts, planning.ts     Touren (Start, Ankunft, Zustellung, ETAs), Auto-Planung mit Vorschau, Optimierung
+    tracking.ts, stats.ts       Sendungsverfolgung (Datenschutz), Auswertungen inkl. Bestellherkunft
     geo.ts            Distanz, Interpolation, PLZ-Zentren, Zonen-Lookup
     routing.ts        OSRM-Routing mit Luftlinien-Fallback; Geocoding (Photon) mit PLZ-Fallback
-    simulator.ts      Demo-Fahrtsimulation entlang der Route
-    handlers/*.ts     Implementierung aller Api-Methoden (auth, catalog, customer, orders, driver, admin …)
+    simulator.ts      Demo-Fahrtsimulation entlang der Route (autoComplete, manualOrderIds)
+    access.ts, notify.ts        Berechtigungen, Benachrichtigungen + Echtzeit-Zielgruppen
+    handlers/*.ts     Implementierung aller Api-Methoden (auth, catalog, customer, orders, driver, tours, admin, invoices …)
     seed/*.ts         Demo-Daten (Sortiment, Kunden, Fahrer, Touren, Historie) + routes.json
 server/
-  index.ts            Express + socket.io + statische Auslieferung von dist/ (Produktion)
+  index.ts            Express + socket.io + statische Auslieferung von dist/ (Produktion), /api/health
+  realtime.ts         socket.io-Räume je Rolle/Kunde/Fahrer
   persistence.ts      data/db.json laden/speichern (atomar, entprellt)
 src/
   main.tsx, App.tsx, routes.tsx
@@ -93,14 +114,15 @@ src/
     local.ts          Core im Browser + BroadcastChannel
     hooks.ts          React-Query-Hooks + Query-Keys (qk) + usePrice()
     RealtimeBridge.tsx  Echtzeit-Ereignisse → Query-Invalidierung, Positions-Store, Toasts
-  stores/             zustand: session.ts, cart.ts, positions.ts, ui.ts
+  stores/             zustand: session.ts (Sitzung je Tab), cart.ts, positions.ts, ui.ts
   components/
     ui/               UI-Kit (siehe §7) – Export über components/ui/index.ts
-    layout/           ShopLayout, DriverLayout, AdminLayout, RequireRole, Footer …
+    layout/           ShopLayout, DriverLayout, AdminLayout, RequireRole, Footer, ConnectionBanner, StickyActionBar …
     map/              BaseMap, Marker, RouteLine … (Leaflet)
     product/          ProductImage (SVG-Illustration), ProductCard, PriceDisplay
     brand/            Logo
-    demo/             DemoSwitcher
+    demo/             DemoSwitcher (Pille, Alt+D), useDemoTripleTap (3× aufs Logo)
+    pwa/              Installations- und Update-Hinweise
   features/
     auth/             Login, Registrierung, Geschäftskunden-Antrag
     shop/             Start, Sortiment, Produkt, Angebote, Warenkorb, Markt-Info
@@ -115,7 +137,7 @@ src/
   lib/                kleine Browser-Helfer (Bild verkleinern, Notifications, Geolocation …)
   styles/index.css    Tailwind + Theme
 e2e/                  Playwright-Tests
-docs/                 Konzept, Architektur, Demo-Drehbuch
+docs/                 Konzept, Architektur, Frontend-Bausteine, Demo-Drehbuch, Deployment
 ```
 
 ### 4.1 Core (`shared/core/index.ts`) – exakte Schnittstelle
@@ -177,12 +199,30 @@ Immer `shared/time.ts` verwenden, nie `new Date().toISOString().slice(0,10)` fü
 - Alle Beträge in **Cent** (Integer). `Product.priceGross` = B2C-Bruttopreis je Gebinde.
 - **B2C** sieht Bruttopreise, „zzgl. 3,10 € Pfand“, Grundpreis „1,99 €/l“ (Preisangabenverordnung).
 - **B2B** sieht **Nettopreise** (+ MwSt. im Warenkorb), Gruppenrabatt (`b2b.discountPercent`) bzw. Staffelpreise (`tierPrices`) – der günstigste Preis gewinnt.
-- Pfand wird separat ausgewiesen; Leergut-Rückgabe wird gutgeschrieben (`depositRefund`, je Art höchstens Leergut-Konto + gelieferte Gebinde).
-- MwSt. (`totals.vat`) enthält auch die MwSt. auf Pfand (Satz des Artikels); die Leergut-Gutschrift mindert sie (19 %).
-  Rechnungen: `net` (Ware + Gebühren) + `vat` + `deposit` − `depositRefund` = `gross`, Pfand/Leergut dort netto.
-- B2B-Preise (netto, Rabatt, Staffeln) erst nach Freischaltung (`b2b.status === 'active'`).
-- Einzige Wahrheit: `shared/core/pricing.ts` → `priceProduct(product, customer|null, qty, now)` und `calculateQuote(...)`.
-  Die UI ruft für Produktkarten `usePrice(product, qty)` (Hook in `src/api/hooks.ts`) auf; für Warenkorb/Kasse `api.quote()`.
+- B2B-Preise (netto, Rabatt, Staffeln) erst nach Freischaltung (`b2b.status === 'active'`), sonst Privatkundenpreise.
+- Pfand wird separat ausgewiesen; Leergut-Rückgabe wird gutgeschrieben (`depositRefund`): Kästen je Art höchstens
+  Leergut-Konto + gelieferte Gebinde, **lose Einzelflaschen** (`DepositType.loose`, z. B. „Bierflasche lose“) ohne Kontoprüfung
+  bis `MAX_LOOSE_QTY` je Art und Bestellung.
+- **Pfand ist umsatzsteuerpflichtig:** Es trägt den MwSt.-Satz des Artikels; die Leergut-Gutschrift mindert das Entgelt zu 19 %.
+  Rabatt, Liefergebühr und Tragservice werden als Nebenleistung anteilig (nach Warenwert brutto) auf die Sätze verteilt.
+- **Einzige Stelle der Steuerberechnung:** `computeTotals()` in `shared/core/pricing.ts` (Kasse, Bestellung, Leergut-Korrektur, Rechnung):
+  - **B2C – Brutto-Basis:** Brutto je Satz, MwSt. = round(Brutto × Satz / (100 + Satz)), Netto = Brutto − MwSt.
+  - **B2B – Netto-Basis:** Netto je Satz (Positionen exakt netto, übrige Bestandteile je Satz entsteuert),
+    MwSt. = round(Netto × Satz), Brutto = Netto + MwSt.; `itemsGross` ergibt sich daraus, sodass die Summenformel exakt gilt.
+  - `Totals.vatBreakdown: { rate, net, vat }[]` – immer Σ net + Σ vat = `total` und Σ vat = `vat` (auch bei negativem
+    Endbetrag = Auszahlung). `Totals.netParts` = Nettowerte der Bestandteile
+    (items − discount + deposit − depositRefund + deliveryFee + carryFee = Σ `vatBreakdown.net`).
+- **Rechnungen** (`shared/core/invoices.ts` → `invoiceTotals()`): Netto je Satz = Summe der Netto-Aufschlüsselungen der
+  Bestellungen; die **MwSt. wird je Satz einmal auf die Netto-Summe** gerechnet (round(Netto × Satz)) – „19 % von Netto =
+  ausgewiesene MwSt.“ centgenau, **ohne Rundungsausgleich**. `net` (Ware + Gebühren − Rabatt) + `vat` + `deposit` − `depositRefund`
+  = `gross`; Pfand und Leergut stehen dort netto, ihre MwSt. steckt in `vat`. Der Rechnungsbetrag darf um Rundungscent von der
+  Summe der Bestellbeträge abweichen – maßgeblich ist die Rechnung. Ältere Datenstände ohne Aufschlüsselung rechnet
+  `totalsWithBreakdown()` nach.
+- Einzige Wahrheit für Preise: `priceProduct(product, customer|null, qty, now)` und `calculateQuote(...)`.
+  Die UI ruft für Produktkarten `usePrice(product, qty)` (Hook in `src/api/hooks.ts`) auf; für Warenkorb/Kasse `api.quote()`,
+  für Telefonbestellungen des Markts `api.adminQuote(customerId, input)`.
+- Anzeige: Kasse und Bestelldetail zeigen „inkl. … MwSt. (19 %) · auch auf Pfand“ (B2C) bzw. „Nettobetrag 19 %“ /
+  „zzgl. MwSt. 19 %“ (B2B, je Satz aus `vatBreakdown`).
 
 ## 5. Routen (Frontend)
 
@@ -214,17 +254,17 @@ Immer `shared/time.ts` verwenden, nie `new Date().toISOString().slice(0,10)` fü
 | `/fahrer/tour/:tourId` | Tour: Karte, Stopps, Ladeliste | driver | driver/TourPage.tsx |
 | `/fahrer/stopp/:orderId` | Stopp: Navigation, Leergut, Kassieren, Unterschrift, Foto | driver | driver/StopPage.tsx |
 | `/admin` | Dashboard | admin | admin/DashboardPage.tsx |
-| `/admin/bestellungen`, `/admin/bestellungen/:orderId` | Bestellungen (Board/Liste), Detail | admin | admin/OrdersBoardPage.tsx, admin/OrderAdminDetailPage.tsx |
-| `/admin/touren` | Tourenplanung/Disposition | admin | admin/ToursPage.tsx |
+| `/admin/bestellungen`, `/admin/bestellungen/:orderId` | Bestellungen (Board/Liste), Detail; `?neu=telefon` (optional `&kunde=<id>`) öffnet die Telefonbestellung – auch auf `/admin` | admin | admin/OrdersBoardPage.tsx, admin/OrderAdminDetailPage.tsx |
+| `/admin/touren` | Tourenplanung/Disposition (`?datum=`), „Automatisch planen“ mit Vorschau, „Optimieren“, Simulation | admin | admin/ToursPage.tsx |
 | `/admin/live` | Live-Karte aller Fahrer | admin | admin/LiveMapPage.tsx |
-| `/admin/abholungen` | Click & Collect / Abholcode prüfen | admin | admin/PickupsPage.tsx |
+| `/admin/abholungen` | Click & Collect: Abholcode eingeben oder QR per Kamera scannen (jsQR), Leergut an der Theke | admin | admin/PickupsPage.tsx |
 | `/admin/sortiment`, `/admin/sortiment/:productId` | Artikel & Bestand | admin | admin/ProductsPage.tsx, admin/ProductEditPage.tsx |
 | `/admin/kunden`, `/admin/kunden/:customerId` | Kunden & B2B-Konditionen | admin | admin/CustomersPage.tsx, admin/CustomerDetailPage.tsx |
 | `/admin/rechnungen` | Rechnungen | admin | admin/InvoicesAdminPage.tsx |
 | `/admin/abos` | Abos & Daueraufträge | admin | admin/SubscriptionsAdminPage.tsx |
 | `/admin/statistik` | Auswertungen | admin | admin/StatsPage.tsx |
 | `/admin/einstellungen` | Öffnungszeiten, Zeitfenster, Liefergebiete, Gebühren, Gutscheine, Demo-Reset | admin | admin/SettingsPage.tsx |
-| `/demo` | Demo-Leitfaden | alle | demo/DemoGuidePage.tsx |
+| `/demo` | Demo-Leitfaden; `?als=<user-id>` bzw. `?als=gast` meldet das Gerät an/ab (QR-Codes) | alle | demo/DemoGuidePage.tsx |
 | `/impressum`, `/datenschutz` | Rechtstexte (Platzhalter) | alle | shop/LegalPage.tsx |
 
 Jede Seitendatei hat einen **Default-Export** (React-Komponente). `src/routes.tsx` lädt alle Seiten per `React.lazy`.
@@ -235,9 +275,14 @@ Jede Seitendatei hat einen **Default-Export** (React-Komponente). `src/routes.ts
   Mutationen: `useMutation` + `queryClient.invalidateQueries({ queryKey: … })`, Fehler per `toast.error(err.message)`.
 - `src/api/RealtimeBridge.tsx` invalidiert bei Echtzeit-Ereignissen automatisch die passenden Keys:
   `order.*` → `qk.orders`, `qk.order(id)`, `qk.tracking(id)`, `qk.admin`, `qk.driver`; `tour.*` → `qk.admin`, `qk.driver`, `qk.tracking`;
-  `product.updated` → `qk.products`; `notification` → `qk.notifications` + Toast; `data.reset` → alles.
+  `product.updated` → `qk.products`; `notification` → `qk.notifications` + Toast; `settings.updated` → Bootstrap-Einstellungen;
+  `data.reset` → alles neu laden, `useCart.reset()`, Positionen leeren.
   `driver.position` → **kein Refetch**, sondern `usePositions` (zustand) aktualisieren → Karten bewegen den Marker flüssig.
-- **Client-Zustand** (zustand): `useSession` (Token, User), `useCart` (persistiert), `usePositions`, `useUi`.
+  Nach einem Verbindungsabbruch lädt die Brücke Grunddaten, Anmeldung und alle Abfragen neu; nach einem Rollenwechsel den Bootstrap
+  (nur der Markt sieht inaktive Gutscheine).
+- **Client-Zustand** (zustand): `useSession` (Token je Tab, User), `useCart` (persistiert), `usePositions`, `useUi` (Demo-Pille, Seitenleiste …).
+- **Fenstertitel:** zentral über `useDocumentTitle()` / `PageHeader` (Register in `src/lib/hooks.ts`, Schema
+  „Seite · Markt · Getränke Altinger“) – Details in `docs/FRONTEND-API.md`.
 
 ## 7. Design-System
 
@@ -293,13 +338,15 @@ Drawer       { open; onClose; title?; children; side?: 'right'|'left'; width?: s
 toast        toast.success(msg) / toast.error(msg) / toast.info(msg)  + <Toaster /> (in App gemountet)
 ```
 
+Ergänzungen seit der Fundament-Phase (u. a. `Notice`, zusätzliche Props, `StickyActionBar`) stehen in **`docs/FRONTEND-API.md`**.
+
 Weitere gemeinsame Bausteine:
 - `@/components/product`: `ProductImage { product; size?: number; className? }` (SVG-Illustration: Kasten mit Flaschen, Sixpack, Flasche, Dose, Fass, Leihartikel – Farben aus `product.color/accent`), `ProductCard { product; layout?: 'grid'|'row' }` (mit Preis, Pfand, Grundpreis, In-den-Warenkorb + Mengen-Stepper, Favoriten-Herz), `PriceDisplay { product; qty? ; size? }`.
 - `@/components/map`: `BaseMap { center?: LatLng; zoom?; className?; fitTo?: LatLng[]; children }`, `StoreMarker`, `DriverMarker { position: GeoPosition|GeoPoint; color?; label?; heading?; pulse? }` (animiert weich zwischen Positionen),
   `StopMarker { position: GeoPoint; index: number; status?: StopStatus; label?; onClick? }`, `HomeMarker { position; label? }`, `RouteLine { coords: LatLng[]; color?; dashed?; weight? }`, `ZoneCircles { zones }`.
 - `@/components/brand`: `Logo { variant?: 'full'|'mark'|'white'; className? }`.
-- `@/components/layout`: `ShopLayout`, `DriverLayout`, `AdminLayout`, `RequireRole { roles: Role[]; children }`.
-- `@/stores/cart`: `useCart()` → `{ items, emptiesReturn, fulfillment, slotId, addressId, carryService, paymentMethod, couponCode, notes, reference, costCenter, eventDate, commission, add(productId, qty?), setQty(productId, qty), remove(productId), setEmpties(depositTypeId, qty), set(patch), clear(), count(), qtyOf(productId), ownerId, bindUser(userId) }`.
+- `@/components/layout`: `ShopLayout`, `DriverLayout`, `AdminLayout`, `RequireRole { roles: Role[]; children }`, `StickyActionBar` (feste mobile Aktionsleiste – nie eigene `fixed bottom-…`-Leisten bauen), `ConnectionBanner`.
+- `@/stores/cart`: `useCart()` → `{ items, emptiesReturn, fulfillment, slotId, addressId, carryService, paymentMethod, couponCode, notes, reference, costCenter, eventDate, commission, add(productId, qty?), setQty(productId, qty), remove(productId), setEmpties(depositTypeId, qty), set(patch), clear(), reset(), count(), qtyOf(productId), ownerId, bindUser(userId) }` (`clear()` nach der Bestellung behält Präferenzen, `reset()` beim Demo-Reset setzt alles zurück).
   Der Warenkorb ist an den angemeldeten Kunden gebunden (`ownerId`, setzt der Session-Store): Wechselt der Kunde, werden Adresse, Zeitfenster, Zahlart, Tragservice, Gutschein, Referenz und Kostenstelle zurückgesetzt – Artikel und Leergut bleiben. Die Kasse muss trotzdem prüfen, ob `addressId` zu den Adressen des Kunden gehört.
 - `@/stores/session`: `useSession()` → `{ status: 'loading'|'guest'|'authenticated', session, user, login(email, pw), demoLogin(userId), logout(), refresh() }`; Hilfs-Hook `useUser()`.
 - `@/api/hooks`: `qk`, `useBootstrap()`, `useSettings()`, `useCategories()`, `useDepositTypes()`, `useProducts()`, `useProduct(id)`, `useMyCustomer()`, `useMyOrders()`, `useOrder(id)`, `useTracking(id)`, `useNotifications()`, `useQuote(input, enabled?)`, `useSlots(query)`, `usePrice(product, qty?)`, `useApiMutation(fn, { invalidate?: QueryKey[]; success?: string })`.

@@ -174,6 +174,9 @@ describe('empties-unbounded-credit-bypass', () => {
     expect(done.status).toBe('picked_up');
     expect(done.totals.depositRefund).toBe(310);
     expect(done.totals.total).toBe(order.totals.total + 620);
+    // Übergabenachweis hält das tatsächlich angenommene Leergut fest (Kundenansicht/Abhol-Dialog lesen es dort)
+    expect(done.proof?.emptiesCollected).toEqual([{ depositTypeId: 'kasten-bier-20', qty: 1 }]);
+    expect((await anna.getOrder(order.id)).proof?.emptiesCollected).toEqual([{ depositTypeId: 'kasten-bier-20', qty: 1 }]);
     // MwSt. passt zur tatsächlichen Gutschrift
     const expected = calculateQuote({ ...input, emptiesReturn: [{ depositTypeId: 'kasten-bier-20', qty: 1 }] }, qctx({ customer: customer('c-anna') }));
     expect(Math.abs(done.totals.vat - expected.totals.vat)).toBeLessThanOrEqual(1);
@@ -186,7 +189,9 @@ describe('empties-unbounded-credit-bypass', () => {
       'validation',
     );
     // ohne Angabe: angemeldete (geprüfte) Rückgabe
-    expect((await admin.adminUpdateOrderStatus(second.id, 'picked_up')).totals.depositRefund).toBe(930);
+    const secondDone = await admin.adminUpdateOrderStatus(second.id, 'picked_up');
+    expect(secondDone.totals.depositRefund).toBe(930);
+    expect(secondDone.proof?.emptiesCollected).toEqual([{ depositTypeId: 'kasten-bier-20', qty: 3 }]);
   });
 });
 

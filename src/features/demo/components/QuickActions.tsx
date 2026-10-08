@@ -1,14 +1,39 @@
-import { useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Gauge, LogIn, Map as MapIcon, MonitorSmartphone, Play, RotateCcw, Route, Server, Square, Wifi, WifiOff } from 'lucide-react';
-import type { TourWithOrders } from '@shared/types';
+import {
+  CheckCheck,
+  CircleCheck,
+  Clock3,
+  Flag,
+  Gauge,
+  Hand,
+  LogIn,
+  Map as MapIcon,
+  MonitorSmartphone,
+  Navigation,
+  Pause,
+  Play,
+  RotateCcw,
+  Route,
+  Server,
+  Smartphone,
+  Square,
+  Truck,
+  Wifi,
+  WifiOff,
+  type LucideIcon,
+} from 'lucide-react';
+import type { Order, TourWithOrders } from '@shared/types';
 import { TOUR_STATUS_LABEL } from '@shared/format';
 import { todayString } from '@shared/time';
 import { api, getApiMode } from '@/api/client';
-import { qk, useBootstrap, useBootstrapActions, useDriverToday, useRealtimeStatus } from '@/api/hooks';
+import { qk, useBootstrap, useBootstrapActions, useDriverToday, useRealtimeStatus, useSettings } from '@/api/hooks';
 import { useSession } from '@/stores/session';
+import { isMac } from '@/lib/platform';
+import { readJson, writeJson } from '@/lib/storage';
 import { cn } from '@/lib/cn';
 import { Badge, Button, ButtonLink, Card, CardHeader, Checkbox, ConfirmModal, ErrorState, Notice, SegmentedControl, Skeleton, Switch, errorMessage, toast } from '@/components/ui';
+import { ANNA_CUSTOMER_ID, TOUR1_ID } from '../data';
 import { useOpenAs, useStepProgress } from '../hooks';
 
 // ───────────────────────────── Simulation ─────────────────────────────
@@ -17,7 +42,7 @@ import { useOpenAs, useStepProgress } from '../hooks';
 function pickTour(tours: TourWithOrders[] | undefined, preferTour1: boolean): TourWithOrders | null {
   if (!tours?.length) return null;
   if (preferTour1) {
-    const t1 = tours.find((t) => t.id === 't-1') ?? tours.find((t) => /^Tour 1\b/.test(t.name));
+    const t1 = tours.find((t) => t.id === TOUR1_ID) ?? tours.find((t) => /^Tour 1\b/.test(t.name));
     if (t1) return t1;
   }
   return tours.find((t) => t.status === 'active') ?? tours.find((t) => t.status === 'planned') ?? tours[0];
@@ -33,6 +58,103 @@ const SPEED_OPTIONS = [
   { value: '15', label: '15×' },
 ];
 
+/** Optionen der Schnellaktion – lokal gemerkt (je Gerät) */
+interface SimPrefs {
+  speed: string;
+  autoComplete: boolean;
+  /** Annas Stopp(s) wartet auf den Fahrer (manualOrderIds), auch wenn sonst automatisch zugestellt wird */
+  annaManual: boolean;
+}
+
+const SIM_PREFS_KEY = 'altinger.demo.sim';
+const DEFAULT_SIM_PREFS: SimPrefs = { speed: '8', autoComplete: true, annaManual: true };
+
+function loadSimPrefs(): SimPrefs {
+  const raw = readJson<Partial<SimPrefs> | null>(SIM_PREFS_KEY, null);
+  if (!raw || typeof raw !== 'object') return DEFAULT_SIM_PREFS;
+  return {
+    speed: SPEED_OPTIONS.some((o) => o.value === raw.speed) ? String(raw.speed) : DEFAULT_SIM_PREFS.speed,
+    autoComplete: typeof raw.autoComplete === 'boolean' ? raw.autoComplete : DEFAULT_SIM_PREFS.autoComplete,
+    annaManual: typeof raw.annaManual === 'boolean' ? raw.annaManual : DEFAULT_SIM_PREFS.annaManual,
+  };
+}
+
+function useSimPrefs() {
+  const [prefs, setPrefs] = useState<SimPrefs>(loadSimPrefs);
+  const update = useCallback((patch: Partial<SimPrefs>) => {
+    setPrefs((prev) => {
+      const next = { ...prev, ...patch };
+      writeJson(SIM_PREFS_KEY, next);
+      return next;
+    });
+  }, []);
+  return [prefs, update] as const;
+}
+
+const DONE_STATUSES: Order['status'][] = ['delivered', 'picked_up', 'failed', 'cancelled'];
+
+/** Annas noch offene Aufträge auf dieser Tour (in Stopp-Reihenfolge) */
+function annaStops(tour: TourWithOrders): { index: number; order: Order }[] {
+  const out: { index: number; order: Order }[] = [];
+  tour.stops.forEach((stop, index) => {
+    if (stop.status === 'delivered' || stop.status === 'failed') return;
+    const order = tour.orders.find((o) => o.id === stop.orderId);
+    if (order && order.customerId === ANNA_CUSTOMER_ID && !DONE_STATUSES.includes(order.status)) out.push({ index, order });
+  });
+  return out;
+}
+
+function stopNumbers(stops: { index: number }[]): string {
+  const nums = stops.map((s) => String(s.index + 1));
+  if (nums.length <= 1) return `Stopp ${nums[0] ?? ''}`.trim();
+  return `Stopps ${nums.slice(0, -1).join(', ')} und ${nums[nums.length - 1]}`;
+}
+
+type SimPhase =
+  | { kind: 'planned' }
+  | { kind: 'completed' }
+  /** Tour gestartet, aber ohne Simulation (echte Fahrt mit GPS) */
+  | { kind: 'live' }
+  | { kind: 'paused' }
+  | { kind: 'driving'; index: number; order?: Order }
+  | { kind: 'dwell'; index: number; order?: Order; done: boolean }
+  | { kind: 'waiting'; index: number; order?: Order }
+  | { kind: 'returning' };
+
+/** Was macht die Simulation gerade? (aus tour.simulation und den Stopps abgeleitet) */
+function simPhase(tour: TourWithOrders): SimPhase {
+  if (tour.status === 'completed') return { kind: 'completed' };
+  if (tour.status === 'planned') return { kind: 'planned' };
+  const sim = tour.simulation;
+  if (!sim) return { kind: 'live' };
+  if (!sim.running) return { kind: 'paused' };
+  const index = sim.legIndex;
+  if (index >= tour.stops.length) return { kind: 'returning' };
+  const stop = tour.stops[index];
+  const order = tour.orders.find((o) => o.id === stop?.orderId);
+  if (stop && (stop.status !== 'pending' || sim.dwellUntil)) {
+    const manual = !sim.autoComplete || !!sim.manualOrderIds?.includes(stop.orderId);
+    const open = stop.status === 'arrived' || stop.status === 'pending';
+    return manual && open ? { kind: 'waiting', index, order } : { kind: 'dwell', index, order, done: !open };
+  }
+  return { kind: 'driving', index, order };
+}
+
+function PhaseLine({ icon: Icon, tone, children }: { icon: LucideIcon; tone: 'brand' | 'amber' | 'emerald' | 'slate'; children: ReactNode }) {
+  const tones = {
+    brand: 'bg-brand-50 text-brand-800 ring-brand-200/70',
+    amber: 'bg-amber-50 text-amber-900 ring-amber-200',
+    emerald: 'bg-emerald-50 text-emerald-900 ring-emerald-200',
+    slate: 'bg-slate-50 text-slate-700 ring-slate-200/70',
+  } as const;
+  return (
+    <div className={cn('flex gap-2.5 rounded-xl p-3 text-[13px] leading-snug ring-1 ring-inset', tones[tone])} role="status">
+      <Icon size={17} aria-hidden className="mt-px shrink-0" />
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
 function SimulationCard() {
   const role = useSession((s) => s.user?.role ?? null);
   const isAdmin = role === 'admin';
@@ -47,67 +169,35 @@ function SimulationCard() {
   const tours = isAdmin ? adminTours.data : driverToday.data?.tours;
   const tour = pickTour(tours, isAdmin);
 
-  const [speed, setSpeed] = useState('4');
-  const [autoComplete, setAutoComplete] = useState(true);
+  const [prefs, setPrefs] = useSimPrefs();
   const [busy, setBusy] = useState<'start' | 'stop' | null>(null);
 
-  const running = !!tour && tour.status === 'active' && !!tour.simulation?.running;
-  const label = tour ? `${shortTourName(tour.name)} simulieren` : 'Tour 1 simulieren';
-  const liveHref = isAdmin ? '/admin/live' : tour ? `/fahrer/tour/${tour.id}` : '/fahrer';
+  const refresh = () =>
+    Promise.all([qc.invalidateQueries({ queryKey: qk.admin }), qc.invalidateQueries({ queryKey: qk.driver }), qc.invalidateQueries({ queryKey: qk.tracking() })]);
 
-  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: qk.admin }), qc.invalidateQueries({ queryKey: qk.driver }), qc.invalidateQueries({ queryKey: qk.tracking() })]);
-
-  const start = async () => {
-    if (!tour) return;
-    setBusy('start');
-    try {
-      await api.simulateTour(tour.id, { speedFactor: Number(speed), autoComplete });
-      await refresh();
-      toast.success(`${shortTourName(tour.name)} fährt los`, {
-        id: 'demo-sim',
-        description: `Simulation mit ${speed}-fachem Zeitraffer${autoComplete ? ', Stopps werden automatisch zugestellt' : ''}.`,
-        href: liveHref,
-        actionLabel: isAdmin ? 'Live-Karte' : 'Zur Tour',
-      });
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const stop = async () => {
-    if (!tour) return;
-    setBusy('stop');
-    try {
-      await api.stopSimulation(tour.id);
-      await refresh();
-      toast.info('Simulation angehalten', { id: 'demo-sim', description: 'Die Tour bleibt gestartet – das Fahrzeug steht.' });
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  };
+  if (!isAdmin && !isDriver) {
+    return (
+      <Card>
+        <CardHeader icon={Route} title="Fahrt simulieren" subtitle="Fahrzeug fährt die echte Route – ohne GPS und ohne Fahrt." />
+        <div className="space-y-3">
+          <Button block icon={Play} disabled>
+            Tour 1 simulieren
+          </Button>
+          <Notice tone="info" icon={LogIn} title="Nur für Marktleitung und Fahrer">
+            Melden Sie sich auf diesem Gerät als Marktleitung an, um Tour 1 per Knopfdruck fahren zu lassen.
+            <div className="mt-2.5">
+              <Button size="sm" variant="secondary" icon={LogIn} loading={loginPending === 'sim-login'} onClick={() => void openAs('u-admin', 'sim-login', { stay: true })}>
+                Als Marktleitung anmelden
+              </Button>
+            </div>
+          </Notice>
+        </div>
+      </Card>
+    );
+  }
 
   let body: ReactNode;
-  if (!isAdmin && !isDriver) {
-    body = (
-      <div className="space-y-3">
-        <Button block icon={Play} disabled>
-          Tour 1 simulieren
-        </Button>
-        <Notice tone="info" icon={LogIn} title="Nur für Marktleitung und Fahrer">
-          Melden Sie sich als Marktleitung an, um Tour 1 per Knopfdruck fahren zu lassen.
-          <div className="mt-2.5">
-            <Button size="sm" variant="secondary" icon={LogIn} loading={loginPending === 'sim-login'} onClick={() => void openAs('u-admin', 'sim-login', { stay: true })}>
-              Als Marktleitung anmelden
-            </Button>
-          </div>
-        </Notice>
-      </div>
-    );
-  } else if (query.isPending) {
+  if (query.isPending) {
     body = (
       <div className="space-y-3" aria-busy>
         <Skeleton className="h-16 w-full rounded-xl" />
@@ -119,30 +209,162 @@ function SimulationCard() {
   } else if (!tour) {
     body = <Notice tone="info" title="Heute keine Touren">Für heute ist keine Tour geplant. Setzen Sie die Demo-Daten zurück, um die Beispieltouren neu zu erzeugen.</Notice>;
   } else {
+    const short = shortTourName(tour.name);
+    const phase = simPhase(tour);
+    const sim = tour.simulation;
+    const running = !!sim?.running && tour.status === 'active';
+    const anna = annaStops(tour);
+    const driverName = (isAdmin ? tour.driver?.name : driverToday.data?.driver.name) ?? 'Der Fahrer';
+    const driverFirst = driverName.split(' ')[0];
     const doneStops = tour.stops.filter((s) => s.status === 'delivered' || s.status === 'failed').length;
-    const driverName = isAdmin ? tour.driver?.name : driverToday.data?.driver.name;
+    const liveHref = isAdmin ? '/admin/live' : `/fahrer/tour/${tour.id}`;
+    const manualIds = prefs.autoComplete && prefs.annaManual ? anna.map((a) => a.order.id) : [];
+
+    const start = async () => {
+      setBusy('start');
+      try {
+        await api.simulateTour(tour.id, { speedFactor: Number(prefs.speed), autoComplete: prefs.autoComplete, manualOrderIds: manualIds });
+        await refresh();
+        const how = !prefs.autoComplete
+          ? `Das Fahrzeug wartet an jedem Stopp, bis ${driverFirst} zustellt.`
+          : manualIds.length
+            ? `Stopps werden automatisch zugestellt – bei Anna Berger wartet das Fahrzeug, bis ${driverFirst} selbst zustellt.`
+            : 'Alle Stopps werden automatisch zugestellt.';
+        toast.success(phase.kind === 'paused' ? `${short} fährt weiter` : `${short} fährt los`, {
+          id: 'demo-sim',
+          description: `${prefs.speed}-facher Zeitraffer. ${how}`,
+          href: liveHref,
+          actionLabel: isAdmin ? 'Live-Karte' : 'Zur Tour',
+        });
+      } catch (err) {
+        toast.error(errorMessage(err), { id: 'demo-sim' });
+      } finally {
+        setBusy(null);
+      }
+    };
+
+    const stop = async () => {
+      setBusy('stop');
+      try {
+        await api.stopSimulation(tour.id);
+        await refresh();
+        toast.info('Simulation angehalten', { id: 'demo-sim', description: 'Die Tour bleibt gestartet – das Fahrzeug steht, bis Sie fortsetzen.' });
+      } catch (err) {
+        toast.error(errorMessage(err), { id: 'demo-sim' });
+      } finally {
+        setBusy(null);
+      }
+    };
+
+    const stopLink = (order: Order | undefined) =>
+      order && isDriver ? (
+        <ButtonLink to={`/fahrer/stopp/${order.id}`} size="sm" variant="secondary" icon={Hand} className="mt-2">
+          Stopp öffnen
+        </ButtonLink>
+      ) : null;
+
+    let status: ReactNode = null;
+    switch (phase.kind) {
+      case 'driving':
+        status = (
+          <PhaseLine icon={Navigation} tone="brand">
+            Unterwegs zu Stopp {phase.index + 1} von {tour.stops.length}
+            {phase.order ? `: ${phase.order.customerName}` : ''}
+          </PhaseLine>
+        );
+        break;
+      case 'dwell':
+        status = (
+          <PhaseLine icon={Clock3} tone="slate">
+            {phase.done
+              ? `Stopp ${phase.index + 1}${phase.order ? ` (${phase.order.customerName})` : ''} ist erledigt – das Fahrzeug fährt gleich weiter.`
+              : `Hält bei ${phase.order?.customerName ?? `Stopp ${phase.index + 1}`} – stellt gleich automatisch zu und fährt weiter.`}
+          </PhaseLine>
+        );
+        break;
+      case 'waiting':
+        status = (
+          <PhaseLine icon={Hand} tone="amber">
+            <strong className="font-semibold">Wartet bei {phase.order?.customerName ?? `Stopp ${phase.index + 1}`}.</strong> {driverFirst} schließt den Stopp in der
+            Fahrer-App ab (Leergut, Zahlung, Unterschrift, Foto) – danach fährt die Simulation von selbst weiter.
+            {stopLink(phase.order)}
+          </PhaseLine>
+        );
+        break;
+      case 'returning':
+        status = (
+          <PhaseLine icon={Flag} tone="emerald">
+            Alle Stopps erledigt – Rückfahrt zum Markt. Danach ist die Tour abgeschlossen.
+          </PhaseLine>
+        );
+        break;
+      case 'paused':
+        status = (
+          <PhaseLine icon={Pause} tone="slate">
+            Simulation angehalten – die Tour bleibt gestartet, das Fahrzeug steht.
+          </PhaseLine>
+        );
+        break;
+      case 'live':
+        status = (
+          <PhaseLine icon={Smartphone} tone="slate">
+            {short} ist ohne Simulation gestartet – die Position kommt vom GPS des Fahrer-Handys. Die Simulation kann die Fahrt übernehmen.
+          </PhaseLine>
+        );
+        break;
+      default:
+        break;
+    }
+
+    const runningSettings = running && sim
+      ? [
+          `${sim.speedFactor}× Zeitraffer`,
+          sim.autoComplete ? 'Stopps automatisch' : `${driverFirst} stellt jeden Stopp zu`,
+          ...(sim.autoComplete && sim.manualOrderIds?.length
+            ? [
+                sim.manualOrderIds.some((id) => tour.orders.find((o) => o.id === id)?.customerId === ANNA_CUSTOMER_ID)
+                  ? `Annas Stopp: ${driverFirst}`
+                  : `${sim.manualOrderIds.length} Stopp(s) manuell`,
+              ]
+            : []),
+        ]
+      : [];
+
     body = (
       <div className="space-y-4">
         <div className="rounded-xl bg-slate-50 p-3.5 ring-1 ring-inset ring-slate-200/70">
           <div className="flex items-start justify-between gap-2">
             <p className="min-w-0 text-sm font-semibold leading-snug text-slate-900">{tour.name}</p>
-            <Badge tone={tour.status === 'active' ? 'brand' : tour.status === 'completed' ? 'success' : 'neutral'} className="shrink-0">
-              {running ? 'Simulation läuft' : TOUR_STATUS_LABEL[tour.status]}
+            <Badge tone={running ? 'brand' : tour.status === 'completed' ? 'success' : phase.kind === 'paused' ? 'warning' : 'neutral'} className="shrink-0">
+              {running ? 'Simulation läuft' : phase.kind === 'paused' ? 'Angehalten' : TOUR_STATUS_LABEL[tour.status]}
             </Badge>
           </div>
           <p className="mt-1 text-[13px] text-slate-500">
-            {driverName ? `${driverName} · ` : ''}
-            {doneStops} von {tour.stops.length} Stopps erledigt
+            {driverName} · {doneStops} von {tour.stops.length} Stopps erledigt
           </p>
-          {running ? (
+          {tour.status === 'active' ? (
             <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-200" aria-hidden>
-              <div className="h-full rounded-full bg-brand-600 transition-[width] duration-700" style={{ width: `${tour.stops.length ? Math.max(6, (doneStops / tour.stops.length) * 100) : 0}%` }} />
+              <div
+                className="h-full rounded-full bg-brand-600 transition-[width] duration-700"
+                style={{ width: `${tour.stops.length ? Math.max(6, (doneStops / tour.stops.length) * 100) : 0}%` }}
+              />
             </div>
+          ) : null}
+          {runningSettings.length ? (
+            <ul className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Einstellungen der laufenden Simulation">
+              {runningSettings.map((s) => (
+                <li key={s} className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-200">
+                  {s}
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
 
+        {status}
+
         {tour.status === 'completed' ? (
-          <Notice tone="success" title={`${shortTourName(tour.name)} ist abgeschlossen`}>
+          <Notice tone="success" icon={CircleCheck} title={`${short} ist abgeschlossen`}>
             Für eine neue Vorführung die Demo-Daten zurücksetzen.
           </Notice>
         ) : running ? (
@@ -156,23 +378,39 @@ function SimulationCard() {
           </div>
         ) : (
           <>
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
                   <Gauge size={16} aria-hidden className="text-slate-400" /> Zeitraffer
                 </span>
-                <SegmentedControl size="sm" options={SPEED_OPTIONS} value={speed} onChange={setSpeed} aria-label="Zeitraffer" />
+                <SegmentedControl size="sm" options={SPEED_OPTIONS} value={prefs.speed} onChange={(v) => setPrefs({ speed: v })} aria-label="Zeitraffer" />
               </div>
               <Switch
-                checked={autoComplete}
-                onChange={setAutoComplete}
+                checked={prefs.autoComplete}
+                onChange={(v) => setPrefs({ autoComplete: v })}
                 label="Stopps automatisch zustellen"
-                description={autoComplete ? 'Läuft ohne Zutun durch.' : 'Wartet am Stopp, bis der Fahrer zustellt.'}
+                description={prefs.autoComplete ? 'Die übrigen Stopps laufen ohne Zutun durch.' : `Wartet an jedem Stopp, bis ${driverFirst} zustellt.`}
+              />
+              <Switch
+                checked={prefs.autoComplete && prefs.annaManual && anna.length > 0}
+                onChange={(v) => setPrefs({ annaManual: v })}
+                disabled={!prefs.autoComplete || anna.length === 0}
+                label="Annas Stopp selbst zustellen"
+                description={
+                  anna.length === 0
+                    ? `Anna Berger hat keinen offenen Auftrag auf ${short}.`
+                    : !prefs.autoComplete
+                      ? `Ohne automatische Zustellung stellt ${driverFirst} ohnehin jeden Stopp selbst zu.`
+                      : prefs.annaManual
+                        ? `Bei Anna Berger (${stopNumbers(anna)}) wartet das Fahrzeug, bis ${driverFirst} in der Fahrer-App zustellt.`
+                        : 'Auch Annas Lieferung wird automatisch zugestellt.'
+                }
               />
             </div>
             <Button block icon={Play} loading={busy === 'start'} onClick={() => void start()}>
-              {label}
+              {phase.kind === 'paused' ? 'Simulation fortsetzen' : phase.kind === 'live' ? 'Simulation übernehmen' : `${short} simulieren`}
             </Button>
+            <p className="-mt-1 text-xs leading-relaxed text-slate-500">Einstellungen werden auf diesem Gerät gemerkt.</p>
           </>
         )}
       </div>
@@ -183,6 +421,63 @@ function SimulationCard() {
     <Card>
       <CardHeader icon={Route} title="Fahrt simulieren" subtitle="Fahrzeug fährt die echte Route – ohne GPS und ohne Fahrt." />
       {body}
+    </Card>
+  );
+}
+
+// ───────────────────────────── Automatische Bestätigung ─────────────────────────────
+
+function AutoConfirmCard() {
+  const settings = useSettings();
+  const role = useSession((s) => s.user?.role ?? null);
+  const isAdmin = role === 'admin';
+  const { update } = useBootstrapActions();
+  const { openAs, pending } = useOpenAs();
+  const [saving, setSaving] = useState(false);
+  const on = !!settings.demoAutoConfirm;
+
+  const save = async (value: boolean) => {
+    setSaving(true);
+    try {
+      // frische Einstellungen des Markts (inkl. inaktiver Gutscheine) als Grundlage – nur der Schalter ändert sich
+      const fresh = await api.getBootstrap();
+      const saved = await api.adminSaveSettings({ ...fresh.settings, demoAutoConfirm: value });
+      update({ settings: saved });
+      toast.success(value ? 'Neue Bestellungen werden automatisch bestätigt' : 'Der Markt bestätigt neue Bestellungen selbst', {
+        id: 'demo-auto-confirm',
+        description: value ? 'Gilt für Bestellungen, die ab jetzt eingehen (nach wenigen Sekunden).' : 'Neue Bestellungen bleiben „Eingegangen“, bis sie im Bestell-Board bestätigt werden.',
+      });
+    } catch (err) {
+      toast.error(errorMessage(err), { id: 'demo-auto-confirm' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader icon={CheckCheck} title="Neue Bestellungen bestätigen" subtitle={on ? 'Zurzeit: automatisch nach wenigen Sekunden' : 'Zurzeit: die Marktleitung bestätigt live'} />
+      <Switch
+        checked={on}
+        onChange={(v) => void save(v)}
+        disabled={!isAdmin || saving}
+        label="Neue Bestellungen automatisch bestätigen"
+        description={
+          on
+            ? 'An: Neue Bestellungen werden nach wenigen Sekunden automatisch bestätigt – praktisch für unbeaufsichtigte Vorführungen.'
+            : 'Aus (empfohlen): Annas Bestellung bleibt „Eingegangen“, bis die Marktleitung im Bestell-Board auf „Bestätigen“ klickt.'
+        }
+      />
+      {!isAdmin ? (
+        <Notice tone="info" icon={LogIn} title="Nur als Marktleitung umschaltbar" className="mt-3">
+          Der Schalter gilt für alle Geräte und lässt sich nur mit dem Zugang der Marktleitung ändern.
+          <div className="mt-2.5">
+            <Button size="sm" variant="secondary" icon={LogIn} loading={pending === 'confirm-login'} onClick={() => void openAs('u-admin', 'confirm-login', { stay: true })}>
+              Als Marktleitung anmelden
+            </Button>
+          </div>
+        </Notice>
+      ) : null}
     </Card>
   );
 }
@@ -278,7 +573,10 @@ function ModeCard() {
         {statusText}
       </p>
       {MODE_FIXED ? (
-        <p className="mt-3 text-[13px] text-slate-500">Fest eingestellt über VITE_API_MODE={ENV_MODE}.</p>
+        <p className="mt-3 text-[13px] leading-relaxed text-slate-500">
+          Fest eingestellt über VITE_API_MODE={ENV_MODE}.
+          {ENV_MODE === 'remote' ? ' Plan B ohne Internet: die App lokal auf dem Laptop starten und dort „/demo?api=local“ öffnen (siehe Drehbuch).' : ''}
+        </p>
       ) : (
         <div className="mt-4 border-t border-slate-100 pt-3">
           <Button size="sm" variant="ghost" icon={remote ? MonitorSmartphone : Server} onClick={switchMode} className="-ml-2">
@@ -293,13 +591,65 @@ function ModeCard() {
   );
 }
 
+// ───────────────────────────── Hinweise ─────────────────────────────
+
+function TipsCard() {
+  const shortcut = isMac() ? '⌥ D' : 'Alt + D';
+  const tips: { icon: LucideIcon; title: string; text: ReactNode }[] = [
+    {
+      icon: Smartphone,
+      title: 'Leitfaden auf dem iPhone',
+      text: (
+        <>
+          Die Demo-Pille ist auf dem Handy ausgeblendet. Zum Leitfaden und Rollenwechsel: <strong>dreimal schnell aufs Logo tippen</strong> (Shop und
+          Fahrer-App) oder ganz unten im Seitenfuß „Demo-Leitfaden“ bzw. „Rollen wechseln“. Am Laptop: Kontomenü → „Demo-Leitfaden &amp; Rollen wechseln“
+          oder {shortcut}.
+        </>
+      ),
+    },
+    {
+      icon: MonitorSmartphone,
+      title: 'Mehrere Rollen in Tabs',
+      text: (
+        <>
+          Jeder Browser-Tab behält seine Anmeldung – Anna, Toni und die Marktleitung können nebeneinander offen sein. Ein neuer Tab startet mit der zuletzt
+          gewählten Rolle. Für die Vorführung empfehlen wir <strong>getrennte Geräte bzw. Browserprofile</strong>.
+        </>
+      ),
+    },
+    {
+      icon: Truck,
+      title: 'Ablauf an Annas Stopp',
+      text: 'Annas vorbereitete Bestellung ist der erste Stopp auf Tour 1 und wird bar bezahlt – ideal für Leergut, Altersprüfung, Kassieren mit Rückgeld, Unterschrift und Foto.',
+    },
+  ];
+  return (
+    <Card>
+      <CardHeader icon={Smartphone} title="Hinweise für die Vorführung" />
+      <ul className="space-y-3.5">
+        {tips.map((t) => (
+          <li key={t.title} className="flex gap-2.5">
+            <t.icon size={17} aria-hidden className="mt-0.5 shrink-0 text-brand-600" />
+            <div className="min-w-0 text-[13px] leading-relaxed text-slate-600">
+              <p className="font-semibold text-slate-900">{t.title}</p>
+              <p className="mt-0.5">{t.text}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 /** Schnellaktionen für die Vorführung (Desktop: mitlaufende Seitenspalte) */
 export function QuickActions() {
   return (
     <div className="space-y-4">
       <SimulationCard />
-      <ModeCard />
+      <AutoConfirmCard />
       <ResetCard />
+      <ModeCard />
+      <TipsCard />
     </div>
   );
 }

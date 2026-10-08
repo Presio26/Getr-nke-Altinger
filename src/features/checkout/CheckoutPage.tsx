@@ -8,6 +8,7 @@ import { api } from '@/api/client';
 import { qk, useDepositTypes, useMyCustomer, useProductMap, useQuote, useSettings, useSlots } from '@/api/hooks';
 import { formatDate } from '@shared/format';
 import { todayString } from '@shared/time';
+import { useDebouncedValue } from '@/lib/hooks';
 import { cartToCheckoutInput, useCart } from '@/stores/cart';
 import { ButtonLink, Card, EmptyState, ErrorState, PageHeader, RadioCards, Skeleton, errorMessage, toast } from '@/components/ui';
 import { StoreInfo } from '@/features/orders/components/StoreInfo';
@@ -122,6 +123,10 @@ export default function CheckoutPage() {
   const quoteQuery = useQuote(customer ? baseInput : null, quoteEnabled);
   const quote = quoteQuery.data;
   const quoteSettled = !!quote && !quoteQuery.isPlaceholderData && !quoteQuery.isFetching;
+  // gehört der Preis schon zu den aktuellen Eingaben? (useQuote rechnet 300 ms entprellt – gleiche Verzögerung)
+  const quoteInput = customer ? baseInput : null;
+  const debouncedQuoteInput = useDebouncedValue(quoteInput, 300);
+  const quoteCurrent = quoteSettled && debouncedQuoteInput === quoteInput;
 
   // ── Zeitfenster ──
   const slotsQuery = useSlots({ type: cart.fulfillment, days: 7 }, !!customer);
@@ -268,8 +273,17 @@ export default function CheckoutPage() {
     return { section: sections[0], issues: next };
   };
 
+  // Klick während die Preise für geänderte Angaben (z. B. eben auf „Abholung“ gewechselt) noch berechnet werden:
+  // nicht gegen den veralteten Preis prüfen (sonst z. B. falscher „Mindestbestellwert“-Fehler und der Klick verpufft),
+  // sondern auf den aktuellen Preis warten und dann bestellen
+  const [placeWhenReady, setPlaceWhenReady] = useState(false);
   const place = async () => {
     if (placing) return;
+    if (quoteEnabled && !quoteCurrent && !quoteQuery.isError) {
+      setPlaceWhenReady(true);
+      return;
+    }
+    setPlaceWhenReady(false);
     setPlaceError(null);
     const problem = validate();
     setIssues(problem?.issues ?? {});
@@ -316,6 +330,13 @@ export default function CheckoutPage() {
       setPlacing(false);
     }
   };
+
+  useEffect(() => {
+    if (!placeWhenReady || (!quoteCurrent && !quoteQuery.isError)) return;
+    void place();
+    // place() bewusst nicht als Abhängigkeit: nur reagieren, sobald der aktuelle Preis da ist
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeWhenReady, quoteCurrent, quoteQuery.isError]);
 
   // ── Zustände ──
   if (!cart.items.length && !placedRef.current) {
@@ -567,7 +588,7 @@ export default function CheckoutPage() {
               if (v) setIssues((i) => ({ ...i, terms: undefined }));
             }}
             termsError={issues.terms}
-            placing={placing}
+            placing={placing || placeWhenReady}
             onPlace={() => void place()}
             placeError={placeError}
           />
@@ -578,7 +599,7 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      <MobileOrderBar total={total} hidden={summaryButtonVisible} placing={placing} onPlace={() => void place()} hint={barHint} />
+      <MobileOrderBar total={total} hidden={summaryButtonVisible} placing={placing || placeWhenReady} onPlace={() => void place()} hint={barHint} />
     </>
   );
 }

@@ -13,6 +13,10 @@ Gesprächsgrundlage für das Treffen mit der Getränke-Altinger GmbH · Stand: O
   werden nur planbarer und für die Kundschaft sichtbar.
 - **Sofort startklar:** Web-App (PWA) statt App-Store – läuft auf iPhone, Android und PC, Installation mit zwei Fingertipps.
 - **Live-Lieferverfolgung** wie bei den großen Lieferdiensten – aber vom Getränkemarkt aus der Nachbarschaft.
+- **Weniger Telefon, messbar:** Online- und Abo-Bestellungen kommen ohne Anruf; Anrufe erfasst der Markt im selben System.
+  Das Dashboard zeigt die **Telefon-Entlastung** in Prozent und gesparter Telefonzeit.
+- **Rechtssicher im Alltag:** Altersprüfung bei Alkohol am Stopp, Zustellnachweis mit Unterschrift und Foto,
+  **Pfand umsatzsteuerlich korrekt** auf Kassenbeleg und Rechnung.
 - **Geringe laufende Kosten** (Richtwert: unter 100 € im Monat für Hosting, Domain, Karten und Benachrichtigungen),
   Hosting in der EU, Datenschutz von Anfang an mitgedacht.
 - **Weg in den Betrieb:** Vorführung → 4–6 Wochen Pilot mit echten Daten → Livegang → schrittweiser Ausbau.
@@ -60,7 +64,7 @@ kommt; Leergut wird auf Papier notiert; Rechnungen für Geschäftskunden entsteh
 | Persona | Bedarf | Was die App bietet |
 |---|---|---|
 | **Familie Berger, Garching** – Privathaushalt | Wasser und Bier regelmäßig, schwer zu tragen, wenig Zeit | Lieferung im Zeitfenster, Tragservice, Abo „alle zwei Wochen“, Leergut-Rückgabe, Live-Tracking |
-| **Frau Maier, 76** – ältere Kundin | Sicherheit, einfache Bedienung, Hilfe beim Tragen | klare Darstellung mit großen Schaltflächen, Wiederholbestellung mit einem Fingertipp, Bezahlung bar oder EC an der Tür, Telefon bleibt möglich – Angehörige können für sie bestellen |
+| **Frau Maier, 76** – ältere Kundin | Sicherheit, einfache Bedienung, Hilfe beim Tragen | klare Darstellung mit großen Schaltflächen, Wiederholbestellung mit einem Fingertipp, Bezahlung bar oder EC an der Tür; sie kann weiter anrufen – der Markt erfasst den Anruf als **Telefonbestellung** direkt im System; Angehörige können für sie bestellen |
 | **Studierende am TUM-Campus** – WG oder Fachschaft | kleine Budgets, spontane Feiern, kein Auto | Angebote, Click & Collect, Festservice mit Party-Planer, Lieferung in den Campus |
 | **Gasthaus Zum Mühlbach** – Gastronomie | feste Lieferrhythmen, Fässer, Rechnung, späte Bestellung am Abend | Nettopreise mit Rabatt/Staffel, Schnellbestellung, Dauerauftrag, Kauf auf Rechnung, Kostenstellen |
 | **NordByte GmbH** – Büro im Forschungszentrum | Büro-Getränke, Beleg für die Buchhaltung, mehrere Standorte | Bestellreferenz, Kostenstellen, Lieferstandorte, Sammelrechnungen als PDF |
@@ -73,8 +77,10 @@ kommt; Leergut wird auf Papier notiert; Rechnungen für Geschäftskunden entsteh
 ### Kundinnen und Kunden (Handy und PC)
 
 - Sortiment mit Suche, Kategorien und Angeboten; Preise inkl. MwSt., Pfand separat, Grundpreis je Liter
-- Warenkorb mit **Leergut-Rückgabe**, Gutscheine, Prüfung des Liefergebiets per Postleitzahl
-- **Lieferung** im Zeitfenster (mit Bestellschluss) oder **Abholung im Markt** mit Abholcode und QR-Code
+- Warenkorb mit **Leergut-Rückgabe** – ganze Kästen und **lose Pfandflaschen** –, Gutscheine, Prüfung des Liefergebiets per Postleitzahl
+- **Lieferung** im Zeitfenster (mit Bestellschluss; nach Ladenschluss schlägt die Kasse den nächsten freien Termin vor)
+  oder **Abholung im Markt** mit Abholcode und QR-Code
+- Transparente Beträge: Pfand separat, „inkl. MwSt. … auch auf Pfand“
 - **Tragservice** bis in die Wohnung als Zusatzleistung
 - **Live-Tracking** mit Karte, Ankunftszeit und Benachrichtigungen; Bewertung nach der Lieferung
 - Kundenkonto mit Bestellhistorie, Adressen, Favoriten, **Abos**, **Leergut-Konto** und Treuepunkten
@@ -84,21 +90,27 @@ kommt; Leergut wird auf Papier notiert; Rechnungen für Geschäftskunden entsteh
 
 - Nettopreise mit Gruppenrabatt oder **Staffelpreisen** (der günstigste Preis gilt automatisch)
 - **Schnellbestellung** als Mengenliste, **Daueraufträge**, mehrere **Lieferstandorte**, **Kostenstellen**
-- **Kauf auf Rechnung** mit Zahlungsziel, Rechnungsübersicht und Druckansicht
+- **Kauf auf Rechnung** mit Zahlungsziel, Rechnungsübersicht und Druckansicht/PDF; Rechnungen weisen Ware, Pfand und
+  Leergut-Rücknahme netto aus, die **MwSt. je Steuersatz auf die Netto-Summe** – so, wie es die Buchhaltung erwartet
 - Online-Antrag „Geschäftskunde werden“ – Freischaltung und Konditionen legt der Markt fest
 
 ### Fahrerinnen und Fahrer (iPhone)
 
 - Tagesübersicht, **Ladeliste**, Stopps in optimierter Reihenfolge, Navigation über die Karten-App
 - „Tour starten“ benachrichtigt alle Kunden der Tour; Standort wird **nur während der Tour** übertragen
-- Am Stopp: „Ich bin da“, **Leergut erfassen**, kassieren (bar/EC), **Unterschrift**, **Foto** als Zustellnachweis,
-  „Nicht angetroffen“ mit Grund
+- Am Stopp: „Angekommen“ (Kunde wird informiert), **Leergut erfassen** (auch lose Flaschen), **Altersprüfung** bei
+  alkoholischen Getränken (ab 16 bzw. 18 Jahren – ohne Bestätigung kein Abschluss), kassieren bar mit
+  **Rückgeld-Anzeige** oder EC (Betrag inkl. tatsächlich zurückgenommenem Leergut), **Unterschrift**, **Foto** als
+  Zustellnachweis, „Problem“ melden (z. B. nicht angetroffen) mit Grund
 
 ### Markt und Disposition (PC oder Tablet)
 
-- Dashboard mit Tageslage; **neue Bestellungen erscheinen live**
-- Bestellungen bestätigen, kommissionieren, bereitstellen; Abholungen per Code/QR ausgeben
-- **Tourenplanung** mit automatischer Verteilung und **Routenoptimierung**; **Live-Karte** aller Fahrzeuge
+- Dashboard mit Tageslage; **neue Bestellungen erscheinen live**; Kennzahl **„Telefon-Entlastung“**
+- Bestellungen bestätigen, kommissionieren, verladen/bereitstellen; **Telefonbestellungen** in einer Minute erfassen
+  (Kunde suchen, „Zuletzt bestellt“, Zeitfenster, Leergut)
+- Abholungen per **QR-Scan mit der Kamera** oder Abholcode ausgeben, mitgebrachtes Leergut direkt verrechnen
+- **Tourenplanung** mit automatischer Verteilung (**Vorschau**, erst „Übernehmen“ speichert) und **Routenoptimierung**
+  (ändert nur, wenn die Route wirklich kürzer wird); **Live-Karte** aller Fahrzeuge
 - Sortiment, Preise und Bestand; Kunden und B2B-Konditionen; Leergut-Korrekturen
 - Rechnungen, Abos und Daueraufträge, **Statistik**
 - Einstellungen: Öffnungszeiten, Zeitfenster und Kapazitäten, Liefergebiete mit Gebühren und Mindestbestellwert,
@@ -111,9 +123,13 @@ kommt; Leergut wird auf Papier notiert; Rechnungen für Geschäftskunden entsteh
 | Nutzen | Wie die App hilft |
 |---|---|
 | **Weniger Telefon- und Fax-Bestellungen** | Bestellungen kommen vollständig und lesbar an – mit Adresse, Zeitfenster, Leergut und Zahlart. Kein Abtippen, keine Missverständnisse. |
+| **Telefon-Entlastung messbar** | Jede Bestellung trägt ihre Herkunft (App, Telefon, Abo). Das Dashboard zeigt den Anteil ohne Anruf und die geschätzte gesparte Telefonzeit – die Wirkung der App ist ab dem ersten Pilottag sichtbar. |
+| **Anrufer bleiben willkommen** | Telefonbestellungen erfasst der Markt im selben System – sie laufen genauso in Touren, Leergut-Konto, Rechnung und Statistik. |
 | **Planbare Touren** | Zeitfenster mit Kapazitäten und Bestellschluss; Touren werden vorgeschlagen und optimiert. |
 | **Weniger Leerfahrten** | Kunden wissen, wann der Fahrer kommt, und werden kurz vorher benachrichtigt – weniger „nicht angetroffen“. |
-| **Leergut-Transparenz** | Rückgabe wird bei der Bestellung angekündigt und am Stopp erfasst; jedes Kundenkonto zeigt den Pfandstand. |
+| **Leergut-Transparenz** | Rückgabe wird bei der Bestellung angekündigt und am Stopp bzw. an der Theke erfasst – Kästen und lose Flaschen; jedes Kundenkonto zeigt den Pfandstand, der Fahrer kassiert automatisch den richtigen Betrag. |
+| **Jugendschutz dokumentiert** | Enthält eine Lieferung Alkohol, bestätigt der Fahrer die Altersprüfung (ab 16 bzw. 18 Jahren) vor dem Abschluss; sie steht im Zustellnachweis. |
+| **Pfand steuerlich korrekt** | Pfand ist Teil des Entgelts und wird mit dem Steuersatz des Artikels versteuert, die Leergut-Rücknahme mindert das Entgelt. Kasse, Bestellung und Rechnung rechnen identisch; Rechnungen weisen Netto und MwSt. je Satz aus (Abstimmung mit der Steuerberatung empfohlen). |
 | **Kundenbindung** | Abos und Daueraufträge sorgen für planbaren Umsatz; Treuepunkte, Favoriten und Wiederholbestellungen halten Kunden beim Markt. |
 | **B2B-Digitalisierung mit Rechnung** | Gastronomie und Büros bestellen selbstständig zu ihren Konditionen; Rechnungen entstehen aus den Lieferungen. |
 | **Click & Collect entlastet den Samstag** | Ware wird vorab kommissioniert, an der Kasse genügt der Abholcode – kürzere Schlangen in der Stoßzeit. |
@@ -121,7 +137,8 @@ kommt; Leergut wird auf Papier notiert; Rechnungen für Geschäftskunden entsteh
 
 **Beispielrechnung (Annahme, bitte mit echten Zahlen ersetzen):** Kommen pro Woche 60 Bestellungen telefonisch
 an und dauert jede Annahme samt Notiz 4 Minuten, sind das 4 Stunden pro Woche. Wandert die Hälfte in die App,
-gewinnt das Team rund **2 Stunden pro Woche** – zusätzlich zu weniger Rückfragen und Fehlern.
+gewinnt das Team rund **2 Stunden pro Woche** – zusätzlich zu weniger Rückfragen und Fehlern. (Die Kennzahl
+„Telefon-Entlastung“ im Dashboard rechnet vorsichtig mit 3 Minuten je Bestellung ohne Anruf.)
 
 ---
 
@@ -159,7 +176,10 @@ im Store gewünscht ist – ohne Neuentwicklung.
 - **Echtzeit:** Jede Änderung (neue Bestellung, Tourstart, Fahrerposition) erreicht alle berechtigten Geräte sofort.
 - **Ein Fachkern:** Preise, Pfand, Rabatte und Berechtigungen werden an genau einer Stelle berechnet – im Shop,
   in der Kasse, in der Rechnung identisch.
-- **Offline-Fähigkeit:** Die App lädt auch bei schwachem Netz; für Vorführungen gibt es einen vollständig lokalen Modus.
+- **Verlässliche Verbindung:** Die App lädt auch bei schwachem Netz (installierte Web-App). Ist der Server kurz nicht
+  erreichbar, zeigt sie das deutlich an („Keine Verbindung zum Server …“) und verbindet sich selbst neu – Bestellungen
+  und Zustellungen landen nie unbemerkt in einer lokalen Kopie. Für Vorführungen ohne Internet gibt es zusätzlich einen
+  vollständig lokalen Demo-Modus.
 - **Sicherheit:** HTTPS, Rollenrechte (Kunde sieht nur eigene Daten, Fahrer nur zugewiesene Touren), keine
   Tracking-Cookies.
 - **Bewährte Technik:** React, TypeScript, Node.js, OpenStreetMap – verbreitet, gut wartbar, kein Hersteller-Lock-in.
@@ -266,7 +286,7 @@ Einmalige Leistungen (Einrichtung, Datenübernahme, Anbindungen, Schulung) werde
 
 ## 12. Nächste Schritte
 
-1. Vorführung und gemeinsames Ausprobieren (ca. 20 Minuten, siehe Demo-Drehbuch).
+1. Vorführung und gemeinsames Ausprobieren (ca. 30 Minuten, siehe Demo-Drehbuch).
 2. Offene Fragen klären; Unterlagen erhalten: Artikelliste mit Preisen, Liefergebiete, Konditionen.
 3. Pilot vereinbaren: Zeitraum, Pilotkunden, Fahrer, Domain.
 4. Angebot für Pilot und Livebetrieb auf Basis der geklärten Anforderungen.

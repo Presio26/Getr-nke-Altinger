@@ -18,6 +18,8 @@ export interface ModalProps {
   bodyClassName?: string;
   /** Schließen-Kreuz ausblenden */
   hideClose?: boolean;
+  /** id einer Überschrift im Inhalt als Name des Dialogs (wenn kein `title` gesetzt ist, z. B. ConfirmModal) */
+  labelledBy?: string;
 }
 
 const SIZE = {
@@ -31,7 +33,7 @@ const SIZE = {
  * Dialog: auf dem Desktop zentriert, auf dem Handy als Bottom-Sheet.
  * Esc und Klick auf den Hintergrund schließen; Fokus bleibt im Dialog.
  */
-export function Modal({ open, onClose, title, description, children, footer, size = 'md', bodyClassName, hideClose = false }: ModalProps) {
+export function Modal({ open, onClose, title, description, children, footer, size = 'md', bodyClassName, hideClose = false, labelledBy }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useOverlay(open, onClose, panelRef);
@@ -44,7 +46,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={title ? titleId : undefined}
+        aria-labelledby={title ? titleId : labelledBy}
         tabIndex={-1}
         className={cn(
           'relative flex max-h-[92dvh] w-full flex-col bg-white shadow-pop outline-none',
@@ -116,12 +118,14 @@ export function ConfirmModal({
   loading = false,
 }: ConfirmModalProps) {
   const Icon = tone === 'danger' ? AlertTriangle : HelpCircle;
+  const headingId = useId();
   return (
     <Modal
       open={open}
       onClose={loading ? () => {} : onClose}
       size="sm"
       hideClose
+      labelledBy={headingId}
       footer={
         <>
           <Button variant="outline" onClick={onClose} disabled={loading} className="sm:min-w-28" data-autofocus={tone === 'danger' ? true : undefined}>
@@ -143,7 +147,9 @@ export function ConfirmModal({
           <Icon size={22} aria-hidden />
         </div>
         <div className="min-w-0 pt-1">
-          <h2 className="text-lg font-bold leading-snug text-slate-900">{title}</h2>
+          <h2 id={headingId} className="text-lg font-bold leading-snug text-slate-900">
+            {title}
+          </h2>
           {message ? <div className="mt-1.5 text-[15px] leading-relaxed text-slate-600">{message}</div> : null}
         </div>
       </div>

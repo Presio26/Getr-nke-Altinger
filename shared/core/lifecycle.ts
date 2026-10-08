@@ -115,7 +115,10 @@ function applyAdminStatus(
     }
     case 'picked_up': {
       assertTransition(order, 'picked_up');
-      applyCompletion(e, order, collectedEmpties(e, order, emptiesCollected, now));
+      const collected = collectedEmpties(e, order, emptiesCollected, now);
+      // Übergabe festhalten: tatsächlich angenommenes Leergut (Abhol-Dialog, Kundenansicht und Leergut-Konto lesen es hier)
+      order.proof = { at: now.toISOString(), emptiesCollected: collected.map((l) => ({ ...l })), ...(note ? { note } : {}) };
+      applyCompletion(e, order, collected);
       const change = note ? { by, note } : { by };
       transitionOrder(e, order, 'picked_up', now, change);
       return;

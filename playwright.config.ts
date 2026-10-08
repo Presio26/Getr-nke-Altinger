@@ -10,7 +10,11 @@
  *   E2E_PORT=8790                        Port des Test-Servers
  *   E2E_SKIP_BUILD=1                     vorhandenen Build aus dist/ verwenden (schneller)
  *
- * Projekte: „Desktop Chromium“ (1440 × 900) und „iPhone“ (Chromium, 390 × 844, Touch, Retina).
+ * Projekte:
+ *   „Desktop Chromium“ (1440 × 900): Rauchtest + Demo-Journeys. Die Journeys öffnen ihre Mobil-Kontexte
+ *     (Kundin/Fahrer als iPhone) selbst und setzen vor jedem Test die Demo-Daten zurück – sie teilen sich
+ *     den Server-Zustand und laufen deshalb nacheinander (1 Worker in diesem Projekt).
+ *   „iPhone“ (Chromium, 390 × 844, Touch, Retina): nur der Rauchtest.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -35,7 +39,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  workers: CI ? 2 : undefined,
+  // ein Worker für das Desktop-Projekt (Journeys, gemeinsamer Server-Zustand) + einer für den iPhone-Rauchtest
+  workers: 2,
   reporter: CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   use: {
     baseURL: EXTERNAL_BASE_URL ?? `http://localhost:${PORT}`,
@@ -47,10 +52,12 @@ export default defineConfig({
   projects: [
     {
       name: 'Desktop Chromium',
+      workers: 1,
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'iPhone',
+      testMatch: /smoke\.spec\.ts$/,
       use: {
         browserName: 'chromium',
         viewport: { width: 390, height: 844 },

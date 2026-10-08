@@ -185,7 +185,11 @@ export default function DemoGuidePage() {
         <section id="drehbuch" aria-label="Drehbuch" className="min-w-0 scroll-mt-24">
           <ScriptSection />
         </section>
-        <aside id="schnellaktionen" aria-label="Schnellaktionen" className="min-w-0 scroll-mt-24 lg:sticky lg:top-36">
+        <aside
+          id="schnellaktionen"
+          aria-label="Schnellaktionen"
+          className="min-w-0 scroll-mt-24 lg:sticky lg:top-24 lg:-mx-2 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:overscroll-contain lg:px-2 lg:pb-2"
+        >
           <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Schnellaktionen</h2>
           <QuickActions />
         </aside>

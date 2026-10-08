@@ -88,15 +88,11 @@ export default function InvoiceDetailPage() {
         ) : undefined
       }
       actions={
-        <>
-          <ButtonLink to={backTo} variant="outline" icon={ArrowLeft} className="flex-1 sm:flex-none">
-            Zurück
-          </ButtonLink>
-          <Button icon={Printer} onClick={printPage} disabled={!data} className="flex-1 sm:flex-none">
-            <span className="sm:hidden">Drucken / PDF</span>
-            <span className="hidden sm:inline">Drucken / als PDF speichern</span>
-          </Button>
-        </>
+        // „Zurück“ übernimmt der Pfeil im Seitenkopf (back) – kein zweiter Zurück-Knopf
+        <Button icon={Printer} onClick={printPage} disabled={!data} className="flex-1 sm:flex-none">
+          <span className="sm:hidden">Drucken / PDF</span>
+          <span className="hidden sm:inline">Drucken / als PDF speichern</span>
+        </Button>
       }
     />
   );

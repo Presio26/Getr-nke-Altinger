@@ -123,10 +123,15 @@ export function createRemoteTransport(init: TransportInit): Transport {
       return;
     }
     socket.timeout(PROBE_TIMEOUT_MS).emit('auth', { token }, (err: Error | null) => {
-      if (err && !disposed) {
+      if (disposed) return;
+      if (err) {
         socket.disconnect();
         socket.connect();
+        return;
       }
+      // Verbindung hat die Funkstille überlebt (z. B. kurz kein WLAN → „offline“ gemeldet): wieder als verbunden melden,
+      // sonst bliebe „Keine Verbindung zum Server“ stehen, obwohl Echtzeit längst wieder läuft
+      hooks.onStatus('online');
     });
   }
 

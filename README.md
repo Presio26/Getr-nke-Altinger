@@ -7,6 +7,9 @@ Markt-Dashboard für Disposition, Sortiment und Auswertungen.
 
 Eine Oberfläche für alle Geräte: iPhone, Android, Tablet und Desktop – ohne App-Store.
 
+**Version 1.0.0** – Demo-Stand für die Vorführung beim Inhaber (Server, Oberfläche und Fachkern; `package.json`,
+`GET /api/health` und Leitfaden `/demo` zeigen die Version).
+
 > **Demo-Stand.** Alle Personen, Firmen, Bestellungen und Preise der Demo sind fiktiv bzw. Beispielwerte.
 > Vor einem Livebetrieb müssen Preise, Sortiment, Öffnungszeiten und Liefergebiete mit dem Markt abgestimmt werden
 > (siehe [docs/KONZEPT.md](docs/KONZEPT.md), Abschnitt „Offene Fragen“).
@@ -36,11 +39,14 @@ Eine Oberfläche für alle Geräte: iPhone, Android, Tablet und Desktop – ohne
 - **Sortiment** mit Kategorien, Suche und Filtern; Produktbilder als Illustration, Preise **brutto inkl. MwSt.**,
   Pfand separat („zzgl. 3,10 € Pfand“) und Grundpreis je Liter (Preisangabenverordnung)
 - **Angebote der Woche** und Gutscheine (z. B. `WILLKOMMEN10`, `GARCHING`)
-- **Warenkorb mit Leergut-Rückgabe** – leere Kästen werden bei der Lieferung mitgenommen und gutgeschrieben
-- **Kasse:** Lieferung oder Abholung, Zeitfenster mit Bestellschluss, Liefergebiet-Prüfung per PLZ,
-  **Tragservice** bis in die Wohnung, Zahlarten (bar, EC-Karte, PayPal/Kreditkarte als Demo)
+- **Warenkorb mit Leergut-Rückgabe** – leere Kästen **und lose Pfandflaschen** (z. B. „Bierflasche lose“) werden bei der
+  Lieferung mitgenommen und gutgeschrieben
+- **Kasse:** Lieferung oder Abholung, Zeitfenster mit Bestellschluss (nach Ladenschluss schlägt die Kasse automatisch den
+  nächsten freien Termin vor), Liefergebiet-Prüfung per PLZ, **Tragservice** bis in die Wohnung, Zahlarten (bar, EC-Karte,
+  PayPal/Kreditkarte als Demo), MwSt.-Ausweis „auch auf Pfand“
 - **Live-Tracking:** Fahrzeug auf der Karte, voraussichtliche Ankunft, Anzahl Stopps davor, Benachrichtigungen
-- **Click & Collect:** Abholcode und QR-Code, Reservierung wird im Markt bereitgestellt
+  („Ihr Fahrer ist da“), Zustellnachweis
+- **Click & Collect:** Abholcode und QR-Code, Reservierung wird im Markt bereitgestellt, Leergut an der Theke
 - **Kundenkonto:** Bestellungen, Adressen, Favoriten, **Abos** (z. B. alle 2 Wochen ein Kasten Wasser),
   **Leergut-Konto**, Treuepunkte, Benachrichtigungen, Bewertung nach der Lieferung
 - **Festservice:** Leihartikel (Garnituren, Kühlschrank, Zapfanlage …) mit Verfügbarkeit und **Party-Planer**,
@@ -53,6 +59,8 @@ Eine Oberfläche für alle Geräte: iPhone, Android, Tablet und Desktop – ohne
 - **Schnellbestellung** als Mengenmatrix, Nachbestellen aus der Historie
 - **Kauf auf Rechnung** (sofern freigeschaltet), Zahlungsziel, **Rechnungen** mit Druckansicht/PDF
 - **Daueraufträge**, mehrere **Lieferstandorte** und **Kostenstellen**, Bestellreferenz
+- **Rechnungen mit MwSt.-Aufschlüsselung inkl. Pfand:** Ware, Pfand und Leergut-Rücknahme netto, MwSt. je Satz auf die
+  Netto-Summe – ohne Rundungsausgleich
 - Online-Antrag „Geschäftskunde werden“ – Freischaltung durch den Markt
 
 ### Fahrerinnen und Fahrer (Fahrer-App, `/fahrer`)
@@ -60,24 +68,44 @@ Eine Oberfläche für alle Geräte: iPhone, Android, Tablet und Desktop – ohne
 - Tagesübersicht mit Touren, **Ladeliste** und Stopps in optimierter Reihenfolge
 - **Tour starten** – Kunden werden automatisch benachrichtigt; GPS-Position geht live an Markt und Kunden
   (nur während der aktiven Tour)
-- Pro Stopp: Navigation (Karten-App), „Ich bin da“, **Leergut erfassen**, **kassieren**, **Unterschrift**,
-  **Foto** als Zustellnachweis, „Nicht angetroffen“ mit Grund
-- **Fahrtsimulation** für Vorführungen ohne echte Fahrt
+- Pro Stopp: Navigation (Apple Karten/Google Maps), „Angekommen“, **Leergut erfassen** (Kästen und lose Flaschen),
+  **Altersprüfung** bei Alkohol (ab 16 bzw. 18 Jahren, Pflicht vor dem Abschluss), **Kassieren** bar mit Rückgeld oder
+  EC-Karte (Betrag inkl. tatsächlich zurückgenommenem Leergut), **Unterschrift**, **Foto** als Zustellnachweis,
+  „Problem“ melden (z. B. nicht angetroffen) mit Grund
+- **Fahrtsimulation** für Vorführungen ohne echte Fahrt – auf Wunsch stellt sie automatisch zu und wartet nur an
+  ausgewählten Stopps (z. B. Annas), bis der Fahrer selbst abschließt
 
 ### Markt und Disposition (Markt-Dashboard, `/admin`)
 
-- **Dashboard** mit Tageskennzahlen; neue Bestellungen erscheinen **live** ohne Neuladen
-- **Bestellungen** als Board/Liste: bestätigen, kommissionieren, bereitstellen, stornieren
-- **Tourenplanung:** Bestellungen Fahrern zuordnen, **automatisch planen**, **Route optimieren**
-- **Live-Karte** aller Fahrzeuge, **Abholungen** per Code/QR prüfen und ausgeben
+- **Dashboard** mit Tageskennzahlen und der Kennzahl **„Telefon-Entlastung“** (Anteil der Bestellungen ohne Anruf,
+  geschätzte gesparte Telefonzeit); neue Bestellungen erscheinen **live** ohne Neuladen (mit Signalton)
+- **Bestellungen** als Board/Liste: bestätigen, kommissionieren, verladen/bereitstellen, stornieren; Kommissionierschein
+- **Telefonbestellung:** Kunde suchen, Artikel per Schnellerfassung oder „Zuletzt bestellt“, Zeitfenster, Leergut –
+  sofort bestätigt, im Board als „Tel.“ gekennzeichnet (auch per `/admin/bestellungen?neu=telefon`)
+- **Tourenplanung:** Bestellungen Fahrern zuordnen, **automatisch planen mit Vorschau** (erst „Übernehmen“ speichert),
+  **Optimieren** (ändert nur bei echter Verbesserung), Demo-Simulation je Tour
+- **Live-Karte** aller Fahrzeuge, **Abholungen** per Code oder **QR-Kamera-Scan** prüfen, Leergut an der Theke annehmen
 - **Sortiment & Bestand**, **Kunden & B2B-Konditionen**, Leergut-Korrekturen
 - **Rechnungen**, **Abos & Daueraufträge**, **Statistik**
-- **Einstellungen:** Öffnungszeiten, Zeitfenster, Liefergebiete, Gebühren, Gutscheine, Ansage-Banner, Demo-Reset
+- **Einstellungen:** Öffnungszeiten, Zeitfenster, Liefergebiete, Gebühren, Gutscheine, Ansage-Banner, Fahrer & Fahrzeuge,
+  Demo (Betriebsmodus, „Neue Bestellungen automatisch bestätigen“ – Standard aus –, Demo-Reset)
+
+### Für alle Rollen
+
+- **Echtzeit** über alle Geräte; bei Verbindungsabbruch Banner „Keine Verbindung zum Server – wird automatisch erneut
+  versucht“, danach automatisches Nachladen. Ist der Server beim Start nicht erreichbar (z. B. Render-Kaltstart),
+  wartet die App mit „Verbinde mit Server …“ – sie wechselt nie still auf lokale Daten.
+- **Sitzung je Browser-Tab:** Jeder Tab behält seine Anmeldung (Anna, Toni und Markt nebeneinander möglich).
+- Einheitliche Fenstertitel („Live-Karte · Markt · Getränke Altinger“), installierbar als App (PWA), mobil mit fester
+  Aktionsleiste über der Tab-Leiste.
 
 ### Demo-Leitfaden (`/demo`)
 
-Rollen-Karten mit „Jetzt öffnen“ und QR-Code fürs iPhone, abhakbares Drehbuch mit Direkt-Links,
-Schnellaktionen (Tour simulieren, Demo-Daten zurücksetzen, Betriebsmodus) sowie Hinweise zu Installation und GPS.
+Rollen-Karten mit „Jetzt öffnen“ und QR-Code fürs iPhone, abhakbares Drehbuch (12 Schritte mit Klickpfad, Kernbotschaft,
+Zeitbedarf und Direkt-Links), Schnellaktionen – **Tour 1 simulieren** (Standard 8×, Stopps automatisch, Annas Stopp stellt
+der Fahrer selbst zu; Einstellungen werden gemerkt, der Stand der Simulation wird live angezeigt), **Neue Bestellungen
+automatisch bestätigen** (nur als Marktleitung), Demo-Daten zurücksetzen, Betriebsmodus – sowie Hinweise zu Rollen in
+mehreren Tabs, zum Leitfaden auf dem iPhone, zu Installation und GPS.
 
 ---
 
@@ -125,7 +153,9 @@ Weitere Skripte:
 ## Demo-Zugänge
 
 Passwort für alle Konten: **`demo`**. Bequemer geht es über die Demo-Schnellzugänge auf `/login`,
-den **Demo-Umschalter** (Pille unten links, Tastenkürzel `Alt + D` bzw. `⌥ D`) oder den Leitfaden `/demo`.
+den **Demo-Umschalter** oder den Leitfaden `/demo`. Den Umschalter erreichen Sie am Desktop über die Pille unten links,
+das Kontomenü („Demo-Leitfaden & Rollen wechseln“) oder `Alt + D` bzw. `⌥ D`; auf dem Handy ist die Pille
+ausgeblendet – dort **dreimal aufs Logo tippen** oder im Seitenfuß „Demo-Leitfaden“ bzw. „Rollen wechseln“.
 
 | Rolle | Name | E-Mail | Startseite |
 |---|---|---|---|
@@ -158,10 +188,14 @@ Dieselbe Oberfläche und derselbe Fachkern laufen in zwei Modi:
 
 Moduswahl beim Start der Oberfläche:
 
-- `VITE_API_MODE=auto` (Standard): prüft `GET /api/health` (max. 2,5 s) – Server erreichbar → Server-Modus, sonst lokal.
-- `VITE_API_MODE=remote` bzw. `VITE_API_MODE=local` (beim **Build** gesetzt) erzwingt den Modus.
-- Nur bei `auto`: URL-Parameter **`?api=local`**, **`?api=remote`** oder **`?api=auto`** (gilt für den Browser-Tab),
-  z. B. `http://localhost:5173/demo?api=local` als Plan B ohne Internet.
+- `VITE_API_MODE=remote` (beim **Build** gesetzt; so bauen **Render-Blueprint und Dockerfile**): fester Server-Modus.
+  Ist der Server kurz nicht erreichbar, zeigt die App „Verbinde mit Server …“ bzw. das Banner „Keine Verbindung“ –
+  es gibt **keinen stillen lokalen Modus**.
+- `VITE_API_MODE=local`: fester lokaler Modus (reines Static-Hosting, Offline-Demo).
+- `VITE_API_MODE=auto` (Standard, z. B. bei `npm run dev`): prüft `GET /api/health` (max. 2,5 s) – Server erreichbar →
+  Server-Modus; eindeutig kein Server (404/HTML) → lokal; nur vorübergehend nicht erreichbar → Server-Modus mit Warten.
+  Zusätzlich URL-Parameter **`?api=local`**, **`?api=remote`** oder **`?api=auto`** (gilt für den Browser-Tab),
+  z. B. `http://localhost:8787/demo?api=local` als Plan B ohne Internet.
 
 ---
 
@@ -185,7 +219,7 @@ Moduswahl beim Start der Oberfläche:
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
-| `VITE_API_MODE` | `auto` | `auto`, `remote` oder `local` (siehe oben) |
+| `VITE_API_MODE` | `auto` | `remote` (Deployment mit Server: Render, Docker – nie still lokal), `local` (Static-Hosting) oder `auto` (Entwicklung, `?api=` möglich); siehe oben |
 | `VITE_API_URL` | leer (gleiche Herkunft) | Basis-URL des Servers, wenn Oberfläche und Server getrennt gehostet werden, z. B. `https://api.example.de` |
 | `API_PORT` | `8787` | nur Entwicklung: Ziel-Port des Vite-Proxys für `/api` und `/socket.io` |
 
@@ -203,9 +237,9 @@ Die App startet danach im Vollbild wie eine native App. Auf Android/Chrome und a
 erscheint ein Installationshinweis bzw. ein Installieren-Symbol in der Adressleiste; im Leitfaden `/demo` gibt es
 einen „Jetzt installieren“-Knopf.
 
-**GPS der Fahrer-App:** Safari gibt die Ortung nur über **HTTPS** frei (Ausnahme: `localhost`). Für Vorführungen
-genügt die eingebaute **Fahrtsimulation**; für echtes GPS die App über HTTPS bereitstellen – automatisch bei Render,
-im WLAN mit mkcert (siehe [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+**GPS und Kamera:** Safari gibt Ortung (Fahrer-App) und Kamera (QR-Scan bei Abholungen) nur über **HTTPS** frei
+(Ausnahme: `localhost`). Für Vorführungen genügen die eingebaute **Fahrtsimulation** bzw. die Code-Eingabe; für echtes GPS
+die App über HTTPS bereitstellen – automatisch bei Render, im WLAN mit mkcert (siehe [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
 ---
 
@@ -260,20 +294,21 @@ Beim ersten Mal ggf. den Browser installieren: `npx playwright install chromium`
 
 | Ziel | Vorgehen | Ergebnis |
 |---|---|---|
-| **Render** (empfohlen für die Vorführung) | Repository verbinden → Blueprint `render.yaml` | HTTPS-Adresse, Echtzeit, GPS auf dem iPhone |
-| Railway / Fly.io | Dockerfile verwenden | wie Render |
+| **Render** (empfohlen für die Vorführung) | Repository verbinden → Blueprint `render.yaml` (baut mit `VITE_API_MODE=remote`, Health-Check `/api/health`) | HTTPS-Adresse, Echtzeit, GPS und Kamera auf dem iPhone |
+| Railway / Fly.io | Dockerfile verwenden (ebenfalls `VITE_API_MODE=remote`, `HEALTHCHECK`) | wie Render |
 | Eigener Server | `docker build -t altinger .` → `docker run -p 8787:8787 -v altinger-data:/app/data altinger` | volle Kontrolle, Hosting in der EU |
 | Netlify / Vercel | Build mit `VITE_API_MODE=local`, Ordner `dist` | nur lokaler Modus, keine geräteübergreifende Echtzeit |
 | Lokales WLAN | `npm run build` + `HTTPS_CERT`/`HTTPS_KEY` (mkcert) + `npm start` | HTTPS im Messe-/Besprechungs-WLAN |
 
-Schritt-für-Schritt-Anleitungen: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Schritt-für-Schritt-Anleitungen inkl. **„In 10 Minuten online für die Demo“**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Auf dem Free-Tarif schläft Render nach ca. 15 Minuten ein (Kaltstart bis ca. 1 Minute) – für die Vorführwoche Tarif Starter.
 
 ---
 
 ## Weitere Unterlagen
 
 - [docs/KONZEPT.md](docs/KONZEPT.md) – Konzeptpapier für das Gespräch mit Getränke-Altinger
-- [docs/DEMO-DREHBUCH.md](docs/DEMO-DREHBUCH.md) – Ablauf der Vorführung mit Gerätezuordnung, Sprechtexten und Plan B
+- [docs/DEMO-DREHBUCH.md](docs/DEMO-DREHBUCH.md) – Ablauf der Vorführung mit Gerätezuordnung, exakten Beschriftungen, Zeitbedarf, Kernbotschaften und Plan B
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) – Bereitstellung (Render, Docker, Static-Hosting, HTTPS im WLAN)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) – Architektur und Regeln für die Entwicklung
 - [docs/FRONTEND-API.md](docs/FRONTEND-API.md) – Bausteine der Oberfläche

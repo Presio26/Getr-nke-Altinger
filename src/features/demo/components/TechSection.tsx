@@ -87,7 +87,7 @@ function GpsCard() {
   if (https) {
     notice = (
       <Notice tone="success" icon={Lock} title="Sichere Verbindung (HTTPS)">
-        GPS und Kamera funktionieren auf allen Geräten – auch auf dem iPhone des Fahrers.
+        GPS (Fahrer-App) und Kamera (QR-Scan bei Abholungen) funktionieren auf allen Geräten – auch auf dem iPhone.
       </Notice>
     );
   } else if (secure) {
@@ -128,8 +128,8 @@ function GpsCard() {
 
 const DOCS: { file: string; title: string; text: string }[] = [
   { file: 'docs/KONZEPT.md', title: 'Konzeptpapier', text: 'Ausgangslage, Ziele, Nutzen, Datenschutz, Roadmap und offene Fragen' },
-  { file: 'docs/DEMO-DREHBUCH.md', title: 'Demo-Drehbuch', text: 'Ablauf mit Gerätezuordnung, Sprechtexten und Plan B' },
-  { file: 'docs/DEPLOYMENT.md', title: 'Deployment', text: 'Render, Docker, Static-Hosting, HTTPS im WLAN' },
+  { file: 'docs/DEMO-DREHBUCH.md', title: 'Demo-Drehbuch', text: 'Ablauf mit Geräten, exakten Beschriftungen, Zeitbedarf und Plan B' },
+  { file: 'docs/DEPLOYMENT.md', title: 'Deployment', text: 'In 10 Minuten online (Render), Docker, HTTPS im WLAN' },
   { file: 'README.md', title: 'README', text: 'Schnellstart, Demo-Zugänge, Konfiguration, Tests' },
 ];
 

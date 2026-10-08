@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowUpRight, Check, ChevronDown, Clock3, Laptop, Megaphone, MonitorSmartphone, RotateCcw, Smartphone, type LucideIcon } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronDown, Clock3, Info, Laptop, Megaphone, MonitorSmartphone, RotateCcw, Smartphone, type LucideIcon } from 'lucide-react';
 import { useBootstrap } from '@/api/hooks';
 import { useSession } from '@/stores/session';
 import { cn } from '@/lib/cn';
@@ -112,6 +112,12 @@ function StepItem({
               </figcaption>
               <blockquote className="text-sm leading-relaxed text-slate-800">„{step.message}“</blockquote>
             </figure>
+            {step.note ? (
+              <p className="flex gap-2 rounded-xl bg-sky-50 p-3 text-[13px] leading-relaxed text-sky-900 ring-1 ring-inset ring-sky-200 lg:col-span-2">
+                <Info size={16} aria-hidden className="mt-0.5 shrink-0 text-sky-700" />
+                <span className="min-w-0">{step.note}</span>
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -144,7 +150,7 @@ function StepItem({
   );
 }
 
-/** Drehbuch: neun Schritte zum Abhaken (lokal gespeichert) mit Direkt-Links */
+/** Drehbuch: Schritte zum Abhaken (lokal gespeichert) mit Direkt-Links, Klickpfad, Kernbotschaft und Hinweis */
 export function ScriptSection() {
   const { done, toggle, reset } = useStepProgress();
   const { openAs, pending } = useOpenAs();

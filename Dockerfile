@@ -7,6 +7,9 @@
 #
 # Der Server wird mit tsx direkt aus TypeScript gestartet (tsx ist eine Laufzeit-Abhängigkeit),
 # die Oberfläche wird in der Build-Stufe mit Vite gebaut und aus dist/ ausgeliefert.
+# Die Oberfläche läuft fest im Server-Modus (VITE_API_MODE=remote): Server und App liegen zusammen,
+# ein stiller Wechsel auf lokale Browser-Daten ist ausgeschlossen.
+# HTTPS (Pflicht für GPS und Kamera auf dem iPhone) übernimmt der Hoster bzw. ein Reverse-Proxy – siehe docs/DEPLOYMENT.md.
 
 # ───────────────────────────── Build ─────────────────────────────
 FROM node:22-alpine AS build
@@ -17,6 +20,13 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+# Build-Zeit-Konfiguration der Oberfläche (Vite liest sie beim Build):
+#   VITE_API_MODE  remote (Standard für dieses Image) – nur für Sonderfälle überschreiben (--build-arg)
+#   VITE_API_URL   leer = gleiche Herkunft (Server und Oberfläche im selben Container)
+ARG VITE_API_MODE=remote
+ARG VITE_API_URL=
+ENV VITE_API_MODE=${VITE_API_MODE} \
+    VITE_API_URL=${VITE_API_URL}
 # Typprüfung + Vite-Build → dist/
 RUN npm run build
 
@@ -46,7 +56,8 @@ USER node
 EXPOSE 8787
 VOLUME ["/app/data"]
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+# Healthcheck: /api/health antwortet {"ok":true,"mode":"remote",…}; start-period deckt den ersten Start (Demo-Daten erzeugen) ab
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
 
 # entspricht "npm start", aber Node direkt als Hauptprozess (SIGTERM → Daten werden gespeichert)

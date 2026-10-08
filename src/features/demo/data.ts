@@ -7,6 +7,11 @@ import type { Role } from '@shared/types';
 /** Pseudo-Kennung für „ohne Anmeldung“ (QR-Code /demo?als=gast meldet ab) */
 export const GUEST_ID = 'gast';
 
+/** Demo-Daten (shared/core/seed): Kundin Anna Berger und ihre vorbereitete Barzahlungs-Bestellung als erster Stopp auf Tour 1 */
+export const ANNA_USER_ID = 'u-anna';
+export const ANNA_CUSTOMER_ID = 'c-anna';
+export const TOUR1_ID = 't-1';
+
 export type DemoDevice = 'iphone' | 'laptop' | 'tablet' | 'any' | 'beamer';
 
 export const DEVICE_LABEL: Record<DemoDevice, string> = {
@@ -50,7 +55,7 @@ export const DEMO_ROLES: DemoRole[] = [
     device: 'iphone',
     color: ROLE_COLOR.customer,
     roleLabel: 'Privatkundin',
-    highlights: ['Bestellen mit Leergut-Rückgabe und Tragservice', 'Lieferung live auf der Karte verfolgen', 'Click & Collect mit Abhol-QR-Code'],
+    highlights: ['Bestellen mit Leergut-Rückgabe (auch lose Flaschen) und Tragservice', 'Lieferung live auf der Karte verfolgen', 'Click & Collect mit Abhol-QR-Code'],
   },
   {
     id: 'u-gasthaus',
@@ -90,7 +95,7 @@ export const DEMO_ROLES: DemoRole[] = [
     description: 'Markt & Disposition: Bestellungen, Touren, Live-Karte',
     device: 'laptop',
     color: ROLE_COLOR.admin,
-    highlights: ['Neue Bestellungen live bestätigen', 'Touren planen und Route optimieren', 'Live-Karte, Abholungen, Statistik'],
+    highlights: ['Neue Bestellungen live bestätigen, Telefonbestellungen erfassen', 'Touren automatisch planen (mit Vorschau) und optimieren', 'Live-Karte, Abholungen mit QR-Scan, Telefon-Entlastung'],
   },
   {
     id: 'u-toni',
@@ -100,7 +105,7 @@ export const DEMO_ROLES: DemoRole[] = [
     description: 'Fahrer · Tour 1 Garching Mitte',
     device: 'iphone',
     color: '#2563eb',
-    highlights: ['Ladeliste prüfen und Tour starten', 'GPS-Position live an Markt und Kundin', 'Leergut, Unterschrift und Foto am Stopp'],
+    highlights: ['Ladeliste prüfen und Tour starten', 'GPS-Position live an Markt und Kundin', 'Leergut, Altersprüfung, Kassieren mit Rückgeld, Unterschrift und Foto'],
   },
   {
     id: 'u-lukas',
@@ -140,13 +145,20 @@ export interface GuideStep {
   device: DemoDevice;
   minutes: number;
   summary: string;
-  /** Klickpfad */
+  /** Klickpfad – Beschriftungen in „…“ stehen genau so in der App */
   path: string[];
   /** Kernbotschaft / Sprechtext */
   message: string;
+  /** Hinweis für die Vorführung (optional) */
+  note?: string;
   links: StepLink[];
 }
 
+/**
+ * Drehbuch der Vorführung. Die zitierten Beschriftungen („…“) sind mit der App abgeglichen
+ * (Playwright-Durchlauf als Anna/Toni auf dem iPhone, Marktleitung und Gasthaus am Desktop) –
+ * bei Änderungen an der Oberfläche bitte hier und in docs/DEMO-DREHBUCH.md mitziehen.
+ */
 export const GUIDE_STEPS: GuideStep[] = [
   {
     id: 'anna-bestellt',
@@ -154,112 +166,124 @@ export const GUIDE_STEPS: GuideStep[] = [
     who: 'Anna · Privatkundin',
     device: 'iphone',
     minutes: 3,
-    summary: 'Lieferung nach Hause – mit Leergut-Rückgabe und Tragservice bis in die Wohnung.',
+    summary: 'Lieferung nach Hause – mit Leergut-Rückgabe (auch lose Flaschen), Tragservice und Barzahlung.',
     path: [
-      'Sortiment öffnen, z. B. 2 Kästen Augustiner Lagerbier Hell in den Warenkorb legen',
-      'Im Warenkorb die Leergut-Rückgabe eintragen (z. B. 2 leere Bierkästen)',
-      'Zur Kasse: Lieferung, heutiges Zeitfenster und Adresse „Zuhause“ wählen',
-      'Tragservice zuschalten, Zahlart wählen und verbindlich bestellen',
+      '„Sortiment“ → „Bier“ → „Augustiner Lagerbier Hell“: mit „+“ auf 2 Kästen, „In den Warenkorb“',
+      '„Warenkorb“ → „Leergut zurückgeben“: 2 × „Bierkasten (20er)“, unter „Einzelflaschen“ 3 × „Bierflasche lose“',
+      '„Zur Kasse“ → „Lieferung“, Adresse „Zuhause“, Lieferfenster wählen',
+      '„Tragservice bis in die Wohnung“ einschalten, „Barzahlung“, AGB-Haken → „Zahlungspflichtig bestellen“',
     ],
     message: 'Bestellen dauert unter einer Minute – Pfand und Leergut werden sauber verrechnet, der Tragservice ist ein Klick.',
+    note: 'Am besten vor 18 Uhr vorführen – danach ist heute kein Lieferfenster mehr frei und die Kasse schlägt automatisch den nächsten Termin vor (z. B. morgen 8–10 Uhr).',
     links: [
-      { label: 'Sortiment', to: '/sortiment', as: 'u-anna' },
       { label: 'Augustiner Hell', to: '/produkt/augustiner-hell', as: 'u-anna' },
       { label: 'Warenkorb', to: '/warenkorb', as: 'u-anna' },
+      { label: 'Kasse', to: '/kasse', as: 'u-anna' },
     ],
   },
   {
     id: 'markt-bestaetigt',
-    title: 'Markt sieht die Bestellung live, bestätigt und plant die Tour',
+    title: 'Markt sieht die Bestellung live, bestätigt und plant',
     who: 'Marktleitung',
     device: 'laptop',
-    minutes: 2,
-    summary: 'Die neue Bestellung erscheint ohne Neuladen im Markt-Dashboard und wird einer Tour zugeordnet.',
+    minutes: 3,
+    summary: 'Annas Bestellung erscheint ohne Neuladen im Dashboard. Der Markt bestätigt selbst, kommissioniert und plant die Tour.',
     path: [
-      'Dashboard: Hinweis „Neue Bestellung“ erscheint sofort',
-      'Bestellungen: Annas Bestellung öffnen und bestätigen',
-      'Tourenplanung: Bestellung Tour 1 zuordnen (oder automatisch planen)',
-      'Route optimieren – Reihenfolge und Fahrzeit werden neu berechnet',
+      '„Dashboard“: Annas Bestellung steht unter „Neue Bestellungen“ mit „Neu“ (mit Signalton)',
+      '„Bestellungen“ → Annas Karte öffnen → „Bestätigen“ → „Kommissionierung starten“ → „Als verladen markieren“',
+      '„Touren“ → Liefertag wählen („Heute“/„Morgen“) → „Automatisch planen“: Vorschau prüfen → „Tour übernehmen“',
+      'Bei einer Tour „Optimieren“ – die Reihenfolge ändert sich nur, wenn die Route wirklich kürzer wird',
     ],
-    message: 'Keine Zettel, kein Abtippen vom Telefon: Bestellungen landen strukturiert im System und die Tour plant sich fast von selbst.',
+    message: 'Kein Zettel, kein Abtippen: Bestellungen kommen vollständig an – mit Zeitfenster, Leergut, Tragservice und Zahlart. Die Tour plant sich fast von selbst.',
+    note: 'Schalter „Neue Bestellungen automatisch bestätigen“ (Schnellaktionen) bleibt für die Vorführung aus – so bestätigt der Markt live.',
     links: [
       { label: 'Dashboard', to: '/admin', as: 'u-admin' },
       { label: 'Bestellungen', to: '/admin/bestellungen', as: 'u-admin' },
-      { label: 'Tourenplanung', to: '/admin/touren', as: 'u-admin' },
+      { label: 'Touren', to: '/admin/touren', as: 'u-admin' },
     ],
   },
   {
-    id: 'fahrer-startet',
-    title: 'Fahrer startet die Tour – oder die Simulation',
-    who: 'Toni · Fahrer',
-    device: 'iphone',
+    id: 'tour-simulation',
+    title: 'Tour 1 fährt los – Simulation mit Annas Stopp',
+    who: 'Marktleitung + Toni',
+    device: 'laptop',
     minutes: 2,
-    summary: 'Toni prüft die Ladeliste und startet Tour 1. Ohne echte Fahrt übernimmt die Simulation die GPS-Position.',
+    summary: 'Toni zeigt Tour 1 und die Ladeliste. Die Simulation fährt die echte Route und hält bei Anna, bis Toni selbst zustellt.',
     path: [
-      'Fahrer-App: Tour 1 · Garching Mitte öffnen',
-      'Ladeliste und Stopps prüfen',
-      '„Tour starten“ – alle Kundinnen und Kunden werden benachrichtigt',
-      'Alternativ rechts unter Schnellaktionen „Tour 1 simulieren“',
+      'Toni (iPhone): „Tour 1 · Garching Mitte“ öffnen, Tab „Ladeliste“ zeigen',
+      'Leitfaden → Schnellaktionen „Fahrt simulieren“: „8×“, „Stopps automatisch zustellen“ an, „Annas Stopp selbst zustellen“ an',
+      '„Tour 1 simulieren“ – die Tour startet, alle Kunden der Tour werden benachrichtigt',
+      'Markt: „Live-Karte“ – das Fahrzeug fährt die echte Route',
     ],
     message: 'Der Fahrer hat alles auf dem Handy: Ladeliste, Reihenfolge, Navigation. Der Markt sieht jederzeit, wo das Fahrzeug ist.',
+    note: 'Annas vorbereitete Bestellung ist der erste Stopp auf Tour 1 (Barzahlung). Ohne Simulation: in der Fahrer-App „Tour starten“ (GPS nur über HTTPS).',
     links: [
-      { label: 'Fahrer-App', to: '/fahrer', as: 'u-toni' },
-      { label: 'Tour 1', to: '/fahrer/tour/t-1', as: 'u-toni' },
-      { label: 'Live-Karte (Markt)', to: '/admin/live', as: 'u-admin' },
+      { label: 'Tour 1 (Toni)', to: '/fahrer/tour/t-1', as: 'u-toni' },
+      { label: 'Live-Karte', to: '/admin/live', as: 'u-admin' },
     ],
   },
   {
     id: 'anna-verfolgt',
-    title: 'Anna verfolgt die Lieferung live und bewertet',
+    title: 'Anna verfolgt die Lieferung live',
     who: 'Anna · Privatkundin',
     device: 'iphone',
     minutes: 2,
-    summary: 'Karte mit Fahrzeug, Ankunftszeit und Anzahl der Stopps davor – nach der Zustellung folgt die Bewertung.',
+    summary: 'Karte mit Fahrzeug, voraussichtlicher Ankunft und Stopps davor – ohne Neuladen.',
     path: [
-      'Meine Bestellungen: aktuelle Bestellung öffnen',
-      'Karte zeigt das Fahrzeug in Bewegung und die voraussichtliche Ankunft',
-      'Benachrichtigung „Fahrer ist gleich da“ abwarten',
-      'Nach der Zustellung mit Sternen bewerten',
+      'Startseite → „Live verfolgen“ (oder „Bestellungen“ → Bestellung auf Tour 1)',
+      'Karte mit „Live-Position“ des Fahrzeugs und voraussichtlicher Ankunft',
+      'Beim Halt erscheint „Ihr Fahrer ist da“',
     ],
     message: 'Wie bei den großen Lieferdiensten – nur vom eigenen Getränkemarkt um die Ecke. Kein „Wann kommt ihr denn?“-Anruf mehr.',
     links: [
       { label: 'Meine Bestellungen', to: '/bestellungen', as: 'u-anna' },
-      { label: 'Benachrichtigungen', to: '/konto/benachrichtigungen', as: 'u-anna' },
+      { label: 'Startseite (Anna)', to: '/', as: 'u-anna' },
     ],
   },
   {
     id: 'fahrer-stopp',
-    title: 'Fahrer am Stopp: Leergut, Unterschrift, Foto',
+    title: 'Toni am Stopp: Leergut, Alter, Kassieren, Nachweis',
     who: 'Toni · Fahrer',
     device: 'iphone',
-    minutes: 2,
-    summary: 'Digitaler Liefernachweis statt Papier: Leergut zählen, kassieren, unterschreiben lassen, Foto machen.',
+    minutes: 3,
+    summary: 'Digitaler Liefernachweis statt Papier: Leergut zählen, Alter prüfen, bar kassieren mit Rückgeld, Unterschrift und Foto.',
     path: [
-      'Tour 1: nächsten Stopp öffnen und „Ich bin da“ tippen',
-      'Zurückgenommenes Leergut erfassen – Pfand wird gutgeschrieben',
-      'Bei Barzahlung kassieren, Unterschrift auf dem Display',
-      'Foto der Abstellung aufnehmen und „Zugestellt“ bestätigen',
+      'Fahrzeug hält bei Anna („Vor Ort“) → Stopp öffnen bzw. „Zum Abschluss“ (ohne Simulation: „Angekommen“)',
+      '„Leergut erfassen“: Kästen prüfen, „Einzelflaschen“ → „Erfassen“ → z. B. 3 × „Bierflasche lose“',
+      '„Kassieren“: „Bar“, z. B. „70,00 €“ antippen → Rückgeld; „Alter geprüft – Empfänger ist mindestens 16 Jahre alt“ abhaken',
+      'Unterschreiben lassen, „Foto aufnehmen“ → „Zustellung abschließen“ – die Simulation fährt weiter',
     ],
-    message: 'Jede Lieferung ist dokumentiert – Leergut, Unterschrift und Foto. Das spart Rückfragen und schafft Transparenz beim Pfand.',
+    message: 'Jede Lieferung ist dokumentiert – Leergut, Jugendschutz, Betrag, Unterschrift und Foto. Das Leergut-Konto jedes Kunden stimmt immer.',
     links: [
       { label: 'Tour 1 (Toni)', to: '/fahrer/tour/t-1', as: 'u-toni' },
       { label: 'Fahrer-App', to: '/fahrer', as: 'u-toni' },
     ],
   },
   {
+    id: 'anna-bewertet',
+    title: 'Anna sieht „Zugestellt“ und bewertet',
+    who: 'Anna · Privatkundin',
+    device: 'iphone',
+    minutes: 1,
+    summary: 'Status, Zustellnachweis und Leergut-Gutschrift – danach eine Bewertung mit einem Fingertipp.',
+    path: ['Bestellung zeigt „Zugestellt“ und den „Zustellnachweis“', '„Wie war Ihre Lieferung?“ → 5 Sterne → „Bewertung senden“'],
+    message: 'Zufriedene Kunden sagen es Ihnen direkt – und Sie sehen die Bewertungen im Dashboard.',
+    links: [{ label: 'Meine Bestellungen', to: '/bestellungen', as: 'u-anna' }],
+  },
+  {
     id: 'gasthaus',
-    title: 'Gasthaus: Schnellbestellung mit Netto- und Staffelpreisen',
+    title: 'Gasthaus: Schnellbestellung und Rechnung',
     who: 'Gasthaus Zum Mühlbach',
     device: 'laptop',
     minutes: 3,
-    summary: 'Geschäftskunden sehen Nettopreise mit Rabatt, bestellen per Mengenmatrix und kaufen auf Rechnung.',
+    summary: 'Nettopreise mit 8 % Rabatt bzw. Staffelpreis, Bestellmatrix, Kauf auf Rechnung – und eine Rechnung mit MwSt. auch auf das Pfand.',
     path: [
-      'Geschäftskunden-Portal: Übersicht mit offenen Rechnungen und Daueraufträgen',
-      'Schnellbestellung: Mengen direkt in der Liste eintragen – Staffelpreise greifen automatisch',
-      'Kostenstelle und Referenz angeben, Zahlart „Rechnung“',
-      'Rechnungen: vorhandene Rechnung öffnen und als PDF drucken',
+      '„Geschäftskunden-Portal“ → „Übersicht“: Offene Posten, Leergut-Konto, Daueraufträge',
+      '„Schnellbestellung“: Mengen direkt eintragen, z. B. 25 × Augustiner (Staffelpreis „ab 25“)',
+      '„Kostenstelle“ und „Ihre Bestellreferenz“ → „Direkt zur Kasse“ → „Kauf auf Rechnung“ → „Zahlungspflichtig bestellen“',
+      '„Rechnungen“ → Rechnung öffnen: Ware, Pfand und Leergut netto, „zzgl. MwSt. 19 %“ → „Drucken / als PDF speichern“',
     ],
-    message: 'Die Gastronomie bestellt abends in zwei Minuten – ohne Fax und Anrufbeantworter. Rechnungen sind sofort digital verfügbar.',
+    message: 'Die Gastronomie bestellt abends in zwei Minuten – zu ihren Konditionen, mit sauberer Rechnung. Kein Fax, kein Anrufbeantworter.',
     links: [
       { label: 'B2B-Portal', to: '/business', as: 'u-gasthaus' },
       { label: 'Schnellbestellung', to: '/business/schnellbestellung', as: 'u-gasthaus' },
@@ -268,21 +292,41 @@ export const GUIDE_STEPS: GuideStep[] = [
   },
   {
     id: 'click-collect',
-    title: 'Click & Collect mit QR-Code und Abholung im Markt',
+    title: 'Click & Collect mit QR-Code und Leergut an der Theke',
     who: 'Anna + Marktleitung',
     device: 'iphone',
-    minutes: 2,
-    summary: 'Online reservieren, im Markt nur noch abholen: Der Markt prüft den QR-Code bzw. Abholcode an der Kasse.',
+    minutes: 3,
+    summary: 'Online reservieren, im Markt nur noch abholen: Der Markt scannt den QR-Code mit der Kamera oder tippt den Abholcode ein.',
     path: [
-      'Anna: Warenkorb → Kasse → „Abholung im Markt“ mit Abholzeitfenster',
-      'Bestelldetail zeigt QR-Code und Abholcode',
-      'Markt: Abholungen öffnen, Code eingeben oder scannen',
-      'Bestellung als „abgeholt“ markieren',
+      'Anna: Warenkorb → „Zur Kasse“ → „Abholung im Markt“ → Abholfenster → „Zahlungspflichtig bestellen“',
+      'Die Bestellung zeigt QR-Code und „Abholcode“',
+      'Markt: „Abholungen“ → „QR scannen“ (Kamera) oder Code eintippen → „Prüfen“',
+      '„Leergut annehmen“ erfassen → „Abgeholt“',
     ],
-    message: 'Click & Collect entzerrt den Samstag: Ware ist vorbereitet, an der Kasse geht es in Sekunden.',
+    message: 'Click & Collect entzerrt den Samstag: Die Ware ist vorbereitet, an der Kasse geht es in Sekunden – Leergut inklusive.',
+    note: 'Kamera-Scan braucht HTTPS (z. B. Render) und die Kamerafreigabe im Browser – sonst den Code eintippen.',
     links: [
       { label: 'Warenkorb (Anna)', to: '/warenkorb', as: 'u-anna' },
       { label: 'Abholungen (Markt)', to: '/admin/abholungen', as: 'u-admin' },
+    ],
+  },
+  {
+    id: 'telefon',
+    title: 'Telefonbestellung durch den Markt',
+    who: 'Marktleitung',
+    device: 'laptop',
+    minutes: 2,
+    summary: 'Stammkunden ohne Smartphone rufen weiter an – der Markt erfasst die Bestellung in einer Minute im selben System.',
+    path: [
+      '„Dashboard“ → „Telefonbestellung“',
+      '„Kunde suchen“ (Name oder die letzten Ziffern der Telefonnummer) → Enter',
+      'Artikel suchen, z. B. „3 augustiner hell“ + Enter – oder aus „Zuletzt bestellt“',
+      'Lieferfenster und Leergut wählen → „Bestellung anlegen“ (sofort bestätigt, Kennzeichen „Tel.“)',
+    ],
+    message: 'Telefon bleibt – aber ohne Zettel: Auch Anrufe landen sauber in Touren, Leergut-Konto und Statistik.',
+    links: [
+      { label: 'Telefonbestellung', to: '/admin/bestellungen?neu=telefon', as: 'u-admin' },
+      { label: 'Bestellungen', to: '/admin/bestellungen', as: 'u-admin' },
     ],
   },
   {
@@ -291,34 +335,46 @@ export const GUIDE_STEPS: GuideStep[] = [
     who: 'Anna oder Gast',
     device: 'any',
     minutes: 2,
-    summary: 'Getränkemengen für ein Fest berechnen lassen und Leihartikel wie Garnituren oder Kühlschränke reservieren.',
+    summary: 'Getränkemengen für ein Fest berechnen lassen und Leihartikel wie Garnituren, Kühlschrank oder Zapfanlage dazubuchen.',
     path: [
-      'Festservice öffnen',
-      'Party-Planer: Anzahl Gäste, Dauer und Art des Festes eingeben',
-      'Vorschlag prüfen und in den Warenkorb übernehmen',
-      'Leihartikel mit Verfügbarkeit am Wunschtermin hinzufügen',
+      '„Festservice“ → „Party-Planer starten“',
+      '„Datum Ihres Festes“, „Gäste“, „Dauer in Stunden“ und „Getränke-Mix“ wählen',
+      '„Ihre Empfehlung“ prüfen → „Alles in den Warenkorb“ (Getränke auf Kommission)',
+      'Leihartikel mit Verfügbarkeit am Festtag „Hinzufügen“',
     ],
-    message: 'Vom Kindergeburtstag bis zum Vereinsfest: Der Planer nimmt die Unsicherheit bei der Menge – und bringt Umsatz mit Leihartikeln.',
+    message: 'Die häufigste Frage beim Fest: Wie viel brauche ich? Der Planer gibt die Antwort – und bringt Umsatz mit dem Verleih.',
     links: [{ label: 'Festservice', to: '/fest', as: 'u-anna' }],
   },
   {
     id: 'markt-auswertung',
-    title: 'Markt: Statistik, Sortiment und Einstellungen',
+    title: 'Markt: Telefon-Entlastung, Statistik und Preise live',
     who: 'Marktleitung',
     device: 'laptop',
-    minutes: 2,
-    summary: 'Umsatz, Bestellwege und Top-Artikel auf einen Blick, Sortiment und Bestand pflegen, Liefergebiete einstellen.',
+    minutes: 3,
+    summary: 'Wie viele Bestellungen ohne Anruf kommen, Umsatz und Top-Artikel – und eine Preisänderung, die sofort im Shop steht.',
     path: [
-      'Statistik: Umsatz, Lieferungen und Abholungen, Top-Artikel',
-      'Sortiment: Preis oder Bestand eines Artikels ändern – sofort live im Shop',
-      'Einstellungen: Öffnungszeiten, Zeitfenster, Liefergebiete und Gebühren',
+      '„Dashboard“: Kennzahl „Telefon-Entlastung“ – Anteil online, gesparte Telefonzeit',
+      '„Statistik“: Umsatz je Tag, Lieferung vs. Abholung, Privat vs. Geschäft, Top-Artikel',
+      '„Sortiment“ → z. B. „Tegernseer Hell“ → „Verkaufspreis brutto“ ändern → „Speichern“ – Annas iPhone zeigt den Preis sofort',
+      '„Einstellungen“: Öffnungszeiten, Zeitfenster, Liefergebiete, Gebühren',
     ],
-    message: 'Der Markt behält die Hoheit: Preise, Zeiten und Gebiete selbst pflegen – ohne Agentur, ohne Wartezeit.',
+    message: 'Sie behalten die Hoheit: Preise, Zeiten und Gebiete pflegen Sie selbst – und sehen in Zahlen, wie viel Telefon die App spart.',
     links: [
+      { label: 'Dashboard', to: '/admin', as: 'u-admin' },
       { label: 'Statistik', to: '/admin/statistik', as: 'u-admin' },
-      { label: 'Sortiment', to: '/admin/sortiment', as: 'u-admin' },
-      { label: 'Einstellungen', to: '/admin/einstellungen', as: 'u-admin' },
+      { label: 'Tegernseer Hell', to: '/admin/sortiment/tegernseer-hell', as: 'u-admin' },
     ],
+  },
+  {
+    id: 'demo-reset',
+    title: 'Demo-Reset für die nächste Runde',
+    who: 'Vortragende/r',
+    device: 'laptop',
+    minutes: 1,
+    summary: 'Ein Klick setzt Bestellungen, Touren und Bestände auf allen Geräten auf den Ausgangsstand zurück.',
+    path: ['Schnellaktionen → „Demo-Daten zurücksetzen“ → „Zurücksetzen“', 'Alternativ Markt: „Einstellungen“ → „Demo“ → „Demo-Daten zurücksetzen“'],
+    message: 'Alles, was Sie gesehen haben, ist echt – und lässt sich jederzeit neu ausprobieren.',
+    links: [{ label: 'Einstellungen', to: '/admin/einstellungen', as: 'u-admin' }],
   },
 ];
 

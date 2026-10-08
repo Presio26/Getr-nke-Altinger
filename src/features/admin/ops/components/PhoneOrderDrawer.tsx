@@ -469,11 +469,21 @@ export function PhoneOrderDrawer({ open, onClose, initialCustomerId, onCreated }
   const quoteErrors = (quote?.errors ?? []).filter((e) => !(e.code === 'slot' && !slotId));
   const canSubmit = !problems.length && !!quote && !quoteErrors.length && !quoteStale && !place.isPending;
 
+  // Klick während die Preise noch neu berechnet werden (z. B. direkt nach dem Hinweis-Tippen): nicht verschlucken,
+  // sondern nach der Berechnung automatisch anlegen
+  const [submitWhenReady, setSubmitWhenReady] = useState(false);
   const submit = () => {
     setTried(true);
-    if (!canSubmit || !input || !customer) return;
-    place.mutate({ customerId: customer.id, input });
+    if (!input || !customer) return;
+    if (canSubmit) place.mutate({ customerId: customer.id, input });
+    else if (quoteStale && !problems.length && !place.isPending) setSubmitWhenReady(true);
   };
+  useEffect(() => {
+    if (!submitWhenReady || quoteStale) return;
+    setSubmitWhenReady(false);
+    if (canSubmit && input && customer) place.mutate({ customerId: customer.id, input });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitWhenReady, quoteStale, canSubmit]);
 
   const balance = customer?.depositBalance ?? {};
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
@@ -494,7 +504,7 @@ export function PhoneOrderDrawer({ open, onClose, initialCustomerId, onCreated }
         <Button variant="outline" onClick={onClose} disabled={place.isPending}>
           Abbrechen
         </Button>
-        <Button icon={Check} onClick={submit} loading={place.isPending} disabled={tried && !canSubmit && !place.isPending}>
+        <Button icon={Check} onClick={submit} loading={place.isPending || submitWhenReady} disabled={tried && !canSubmit && !place.isPending && !submitWhenReady}>
           Bestellung anlegen
         </Button>
       </div>

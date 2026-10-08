@@ -170,7 +170,7 @@ function PreviewCard({ draft, base, children }: { draft: ProductDraft; base: Pro
             <div>
               {offerActive ? (
                 <div className="flex items-baseline gap-2">
-                  <span className="text-xl font-bold tabular-nums text-accent-700 lg:text-2xl">{formatEuro(offer)}</span>
+                  <span className="text-xl font-bold tabular-nums text-red-600 lg:text-2xl">{formatEuro(offer)}</span>
                   <span className="text-sm text-slate-400 line-through tabular-nums">{formatEuro(price)}</span>
                 </div>
               ) : (
