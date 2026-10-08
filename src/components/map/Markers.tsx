@@ -212,7 +212,7 @@ export function ZoneCircles({ zones, showInfo = true }: ZoneCirclesProps) {
             <Tooltip sticky>
               <strong>{z.name}</strong>
               <br />
-              Liefergebühr {z.fee ? formatEuro(z.fee) : 'kostenlos'} · ab {formatEuro(z.freeFrom)} frei
+              {z.fee ? `Liefergebühr ${formatEuro(z.fee)} · ab ${formatEuro(z.freeFrom)} frei Haus` : 'Lieferung kostenlos'}
               <br />
               Mindestbestellwert {formatEuro(z.minOrder)}
             </Tooltip>

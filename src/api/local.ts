@@ -21,7 +21,7 @@
  *
  * Verbindungsstatus ist immer 'online'.
  */
-import { createCore, createSeedDb, isSeedStale, type Core, type Db } from '@shared/core/index';
+import { createCore, isSeedStale, reseedDb, type Core, type Db } from '@shared/core/index';
 import { SCHEMA_VERSION } from '@shared/core/db';
 import { API_ERROR_STATUS, ApiError } from '@shared/api';
 import type { ApiErrorCode, Audience, RealtimeEvent, User } from '@shared/types';
@@ -305,7 +305,8 @@ export function createLocalTransport(init: TransportInit): Transport {
     lastJson = storedJson;
   } else {
     // Ein Folge-Tab übernimmt den Stand des Leaders später per Snapshot – geschrieben wird nur vom Leader.
-    initialDb = createSeedDb(startedAt);
+    // Vom Vortag: frische Demo-Daten, Anmeldungen bleiben erhalten.
+    initialDb = reseedDb(initialDb, startedAt);
   }
 
   // ── Ereignis-Puffer ──
@@ -693,7 +694,7 @@ export function createLocalTransport(init: TransportInit): Transport {
     lastStaleCheck = t;
     const today = new Date(t);
     if (!isSeedStale(core.getDb(), today)) return;
-    const fresh = createSeedDb(today);
+    const fresh = reseedDb(core.getDb(), today);
     core.replaceDb(fresh);
     userCache = null;
     writeDb(fresh);

@@ -23,6 +23,11 @@ export interface CartData {
   costCenter?: string;
   eventDate?: DayString;
   commission: boolean;
+  /**
+   * Kunde (User-ID), für den Adresse, Zahlart, Kostenstelle & Co. gewählt wurden.
+   * Wechselt der angemeldete Kunde (z. B. Demo-Umschalter), werden diese Angaben verworfen – die Artikel bleiben.
+   */
+  ownerId?: ID;
 }
 
 export interface CartState extends CartData {
@@ -41,6 +46,11 @@ export interface CartState extends CartData {
   count(): number;
   /** Menge eines Artikels im Warenkorb */
   qtyOf(productId: ID): number;
+  /**
+   * Warenkorb dem angemeldeten Kunden zuordnen (ruft der Session-Store auf).
+   * Anderer Kunde als bisher → kundenbezogene Kassenangaben zurücksetzen; Artikel und Leergut bleiben.
+   */
+  bindUser(userId: ID): void;
 }
 
 const clampQty = (n: number) => Math.max(0, Math.min(MAX_QTY, Math.floor(Number.isFinite(n) ? n : 0)));
@@ -92,14 +102,33 @@ export const useCart = create<CartState>()(
         set(patch);
       },
       clear() {
-        const { fulfillment, addressId, paymentMethod, costCenter } = get();
-        set({ ...INITIAL, fulfillment, addressId, paymentMethod, costCenter, slotId: undefined, couponCode: undefined, notes: undefined, reference: undefined, eventDate: undefined });
+        const { fulfillment, addressId, paymentMethod, costCenter, ownerId } = get();
+        set({ ...INITIAL, fulfillment, addressId, paymentMethod, costCenter, ownerId, slotId: undefined, couponCode: undefined, notes: undefined, reference: undefined, eventDate: undefined });
       },
       count() {
         return get().items.reduce((sum, i) => sum + i.qty, 0);
       },
       qtyOf(productId) {
         return get().items.find((i) => i.productId === productId)?.qty ?? 0;
+      },
+      bindUser(userId) {
+        const { ownerId } = get();
+        if (ownerId === userId) return;
+        if (!ownerId) {
+          // Gast-Warenkorb (oder älterer Stand ohne Zuordnung) übernehmen
+          set({ ownerId: userId });
+          return;
+        }
+        set({
+          ownerId: userId,
+          addressId: undefined,
+          slotId: undefined,
+          paymentMethod: INITIAL.paymentMethod,
+          carryService: false,
+          couponCode: undefined,
+          reference: undefined,
+          costCenter: undefined,
+        });
       },
     }),
     {
@@ -120,6 +149,7 @@ export const useCart = create<CartState>()(
         costCenter: s.costCenter,
         eventDate: s.eventDate,
         commission: s.commission,
+        ownerId: s.ownerId,
       }),
     },
   ),

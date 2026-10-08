@@ -21,12 +21,12 @@ function isAlcoholFree(p: Product): boolean {
   return p.tags.includes('alkoholfrei') || p.categoryId === 'alkoholfrei' || (p.alcoholPercent !== undefined && p.alcoholPercent <= 0.5 && ['bier', 'alkoholfrei'].includes(p.categoryId));
 }
 
-function ProductBadges({ product, isOffer, offerLabel, max = 3 }: { product: Product; isOffer: boolean; offerLabel?: string; max?: number }) {
+function ProductBadges({ product, isOffer, max = 3, mobileMax = max }: { product: Product; isOffer: boolean; max?: number; mobileMax?: number }) {
   const badges: JSX.Element[] = [];
   if (isOffer) {
     badges.push(
       <Badge key="offer" tone="accent" solid icon={Tag}>
-        {offerLabel && offerLabel.length <= 18 ? offerLabel : 'Angebot'}
+        Angebot
       </Badge>,
     );
   }
@@ -35,7 +35,19 @@ function ProductBadges({ product, isOffer, offerLabel, max = 3 }: { product: Pro
   if (product.tags.includes('bio')) badges.push(<Badge key="bio" tone="success" icon={Leaf}>Bio</Badge>);
   if (isAlcoholFree(product)) badges.push(<Badge key="af" tone="info">Alkoholfrei</Badge>);
   if (!badges.length && product.tags.includes('bestseller')) badges.push(<Badge key="best" tone="neutral">Beliebt</Badge>);
-  return <>{badges.slice(0, max)}</>;
+  return (
+    <>
+      {badges.slice(0, max).map((b, i) =>
+        i < mobileMax ? (
+          b
+        ) : (
+          <span key={`w${i}`} className="hidden sm:block">
+            {b}
+          </span>
+        ),
+      )}
+    </>
+  );
 }
 
 function useCartControls(product: Product) {
@@ -138,7 +150,7 @@ export const ProductCard = memo(function ProductCard({ product, layout = 'grid',
         {soldOut ? <span className="absolute inset-0 bg-white/55" aria-hidden /> : null}
       </Link>
       <div className="pointer-events-none absolute left-2.5 top-2.5 flex max-w-[75%] flex-wrap gap-1.5">
-        <ProductBadges product={product} isOffer={price.isOffer} offerLabel={price.note} max={2} />
+        <ProductBadges product={product} isOffer={price.isOffer} max={2} mobileMax={1} />
       </div>
       <FavoriteButton product={product} className="absolute right-2 top-2" />
 
@@ -166,8 +178,15 @@ export const ProductCard = memo(function ProductCard({ product, layout = 'grid',
               <QuantityStepper value={qty} onChange={setQty} removeAtMin max={max} label={label} className="flex-1 justify-between" />
             </div>
           ) : (
-            <Button icon={ShoppingCart} block onClick={onAdd} aria-label={`${label} in den Warenkorb`}>
-              {product.isRental ? 'Vormerken' : 'In den Warenkorb'}
+            <Button icon={ShoppingCart} block onClick={onAdd} aria-label={`${label} in den Warenkorb`} className="px-3">
+              {product.isRental ? (
+                'Vormerken'
+              ) : (
+                <>
+                  <span className="sm:hidden">In den Korb</span>
+                  <span className="hidden sm:inline">In den Warenkorb</span>
+                </>
+              )}
             </Button>
           )}
         </div>

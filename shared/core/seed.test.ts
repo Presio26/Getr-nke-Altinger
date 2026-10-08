@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, berlinDate, dayString, todayString } from '../time';
-import { createSeedDb, isSeedStale, type Db } from './index';
+import { createSeedDb, isSeedStale, reseedDb, type Db } from './index';
 import { SCHEMA_VERSION } from './db';
 import { haversine } from './geo';
 import { parseSlotId } from './slots';
@@ -268,5 +268,14 @@ describe('Demo-Daten', () => {
     expect(isSeedStale({ ...db, schemaVersion: 0 }, DEFAULT_NOW)).toBe(true);
     expect(isSeedStale({ ...db, seededAt: 'kaputt' }, DEFAULT_NOW)).toBe(true);
     expect(dayString(new Date(db.seededAt))).toBe('2026-10-08');
+  });
+
+  it('reseedDb erzeugt frische Daten und behält Anmeldungen bekannter Nutzer', () => {
+    const tomorrow = new Date(DEFAULT_NOW.getTime() + 24 * 3600_000);
+    const previous = { sessions: { 'tok-anna': 'u-anna', 'tok-admin': 'u-admin', 'tok-weg': 'u-gibt-es-nicht' } };
+    const fresh = reseedDb(previous, tomorrow);
+    expect(isSeedStale(fresh, tomorrow)).toBe(false);
+    expect(fresh.sessions).toEqual({ 'tok-anna': 'u-anna', 'tok-admin': 'u-admin' });
+    expect(reseedDb(null, tomorrow).sessions).toEqual({});
   });
 });

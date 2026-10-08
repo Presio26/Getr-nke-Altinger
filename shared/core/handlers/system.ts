@@ -4,7 +4,7 @@
 import { ApiError, type CoreHandlers } from '../../api';
 import type { DemoUser } from '../../types';
 import type { Engine } from '../engine';
-import { createSeedDb } from '../seed';
+import { reseedDb } from '../seed';
 import { DEMO_USER_INFO } from '../seed/people';
 
 export const CORE_VERSION = '1.0.0';
@@ -37,13 +37,8 @@ export function systemHandlers(e: Engine): Pick<CoreHandlers, 'getBootstrap' | '
       if (ctx.user?.role !== 'admin' && !e.demoMode) {
         throw new ApiError('forbidden', 'Nur die Marktleitung darf die Daten zurücksetzen.');
       }
-      const previous = e.db;
-      const db = createSeedDb(ctx.now);
       // Anmeldungen behalten, sofern es den Nutzer im neuen Bestand gibt
-      for (const [token, userId] of Object.entries(previous.sessions)) {
-        if (db.users.some((u) => u.id === userId)) db.sessions[token] = userId;
-      }
-      e.setDb(db);
+      e.setDb(reseedDb(e.db, ctx.now));
       e.emit({ type: 'data.reset' }, { all: true });
     },
   };

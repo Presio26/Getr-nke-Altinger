@@ -42,7 +42,7 @@ export function useDocumentTitle(title: string | null | undefined): void {
   }, [title]);
 }
 
-/** Klick außerhalb eines Elements (Dropdowns, Popover) */
+/** Klick außerhalb eines Elements oder Esc (Dropdowns, Popover) */
 export function useClickOutside<T extends HTMLElement>(onOutside: () => void, enabled = true) {
   const ref = useRef<T | null>(null);
   const cb = useRef(onOutside);
@@ -53,8 +53,15 @@ export function useClickOutside<T extends HTMLElement>(onOutside: () => void, en
       const el = ref.current;
       if (el && e.target instanceof Node && !el.contains(e.target)) cb.current();
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cb.current();
+    };
     document.addEventListener('pointerdown', handler);
-    return () => document.removeEventListener('pointerdown', handler);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', handler);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [enabled]);
   return ref;
 }

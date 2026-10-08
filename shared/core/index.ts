@@ -27,7 +27,7 @@ import { notificationHandlers } from './handlers/notifications';
 
 export type { Db } from './db';
 export { SCHEMA_VERSION } from './db';
-export { createSeedDb } from './seed';
+export { createSeedDb, reseedDb } from './seed';
 export { priceProduct, calculateQuote, type ProductPrice, type QuoteContext } from './pricing';
 export { generateSlots, findSlot, parseSlotId, slotIdOf } from './slots';
 export {

@@ -21,7 +21,7 @@ import cors from 'cors';
 import express, { type ErrorRequestHandler, type Request, type RequestHandler, type Response } from 'express';
 import { API_ERROR_STATUS, ApiError } from '../shared/api';
 import type { ApiErrorBody, ApiErrorCode } from '../shared/types';
-import { createCore, createSeedDb, isSeedStale, type Core, type CoreOptions, type Db } from '../shared/core/index';
+import { createCore, isSeedStale, reseedDb, type Core, type CoreOptions, type Db } from '../shared/core/index';
 import { createPersister, loadDb, type LoadResult } from './persistence';
 import { createRealtime, type Realtime } from './realtime';
 
@@ -368,7 +368,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Run
     try {
       const t = now();
       if (!isSeedStale(theCore.getDb(), t)) return;
-      const fresh = createSeedDb(t);
+      // Anmeldungen bleiben erhalten – vorbereitete Demo-Geräte müssen sich nicht neu anmelden
+      const fresh = reseedDb(theCore.getDb(), t);
       theCore.replaceDb(fresh);
       persister.schedule(fresh);
       realtime.emit({ type: 'data.reset' }, { all: true });

@@ -48,3 +48,17 @@ export function createSeedDb(now: Date = new Date()): Db {
     autoConfirm: [],
   };
 }
+
+/**
+ * Frische Demo-Daten erzeugen und bestehende Anmeldungen übernehmen, sofern es den Nutzer im
+ * neuen Bestand gibt (Demo-Reset, Tageswechsel). So bleiben vorbereitete Demo-Geräte angemeldet.
+ */
+export function reseedDb(previous: Pick<Db, 'sessions'> | null | undefined, now: Date = new Date()): Db {
+  const db = createSeedDb(now);
+  const sessions = previous && typeof previous.sessions === 'object' && previous.sessions ? previous.sessions : {};
+  const userIds = new Set(db.users.map((u) => u.id));
+  for (const [token, userId] of Object.entries(sessions)) {
+    if (typeof userId === 'string' && userIds.has(userId)) db.sessions[token] = userId;
+  }
+  return db;
+}

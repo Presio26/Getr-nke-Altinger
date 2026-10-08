@@ -176,7 +176,7 @@ function Anhaenger({ product }: IllustrationProps) {
       <rect x={44} y={92} width={144} height={22} fill={product.accent} />
       <FitText x={116} y={107} width={128} text={product.brand.toUpperCase()} size={11} fill={c} spacing={1.4} />
       <FitText x={116} y={76} width={110} text="KÜHLANHÄNGER" size={10} fill="#fff" weight={800} spacing={2} opacity={0.9} />
-      <rect x={156} y={58} width={4} height={30} rx={2} fill={shade(c, -0.3)} />
+      <rect x={176} y={120} width={4} height={20} rx={2} fill={shade(c, -0.35)} />
       {/* Fahrgestell */}
       <rect x={40} y={146} width={150} height={8} rx={3} fill="#1e293b" />
       <path d="M92 146 a24 24 0 0 1 48 0" fill="#334155" />
@@ -362,23 +362,33 @@ function Eis({ product, uid }: IllustrationProps) {
 
 function Becher({ product, uid }: IllustrationProps) {
   const c = product.color;
+  const cup = (dy: number, front: boolean, key: number) => {
+    const top = 52 + dy;
+    const d = `M62 ${top} L138 ${top} L126 ${top + 118} L74 ${top + 118} Z`;
+    return (
+      <g key={key}>
+        <path d={d} fill={`url(#${uid}-cup)`} opacity={front ? 0.95 : 0.55} />
+        <path d={d} fill="none" stroke={shade(c, -0.25)} strokeOpacity={0.45} />
+        <ellipse cx={100} cy={top} rx={38} ry={5.5} fill={mix(c, '#ffffff', 0.75)} stroke={shade(c, -0.2)} strokeOpacity={0.55} />
+      </g>
+    );
+  };
   return (
     <g>
       <defs>
         <linearGradient id={`${uid}-cup`} x1="0" x2="1">
-          <stop offset="0" stopColor={c} stopOpacity="0.7" />
-          <stop offset="0.3" stopColor="#fff" stopOpacity="0.55" />
-          <stop offset="1" stopColor={c} stopOpacity="0.85" />
+          <stop offset="0" stopColor={c} stopOpacity="0.75" />
+          <stop offset="0.28" stopColor="#ffffff" stopOpacity="0.6" />
+          <stop offset="0.6" stopColor={c} stopOpacity="0.45" />
+          <stop offset="1" stopColor={shade(c, -0.15)} stopOpacity="0.85" />
         </linearGradient>
       </defs>
-      <GroundShadow cx={100} cy={182} rx={60} ry={7} />
-      {[0, 1, 2, 3].map((i) => (
-        <path key={i} d={`M${62 + i * 0} ${40 + i * 12} L138 ${40 + i * 12} L128 ${170} L72 ${170} Z`} fill={`url(#${uid}-cup)`} stroke={shade(c, -0.2)} strokeOpacity={0.5} opacity={0.55 + i * 0.12} />
-      ))}
-      <ellipse cx={100} cy={76} rx={38} ry={6} fill={mix(c, '#ffffff', 0.6)} stroke={shade(c, -0.2)} strokeOpacity={0.5} />
-      <path d="M78 112 h44" stroke="#fff" strokeWidth={2} />
-      <FitText x={100} y={106} width={40} text="0,4 l" size={9} fill="#fff" weight={800} spacing={0.5} />
-      <FitText x={100} y={146} width={50} text={brandLabel(product)} size={9} fill="#fff" spacing={1.2} />
+      <GroundShadow cx={100} cy={176} rx={50} ry={6} />
+      {[-30, -20, -10].map((dy, i) => cup(dy, false, i))}
+      {cup(0, true, 9)}
+      <path d="M80 92 h40" stroke="#fff" strokeWidth={2} />
+      <FitText x={100} y={86} width={40} text="0,4 l" size={9} fill="#fff" weight={800} spacing={0.5} />
+      <FitText x={100} y={130} width={44} text={brandLabel(product)} size={9} fill="#fff" spacing={1.2} />
       <Tag product={product} x={124} y={176} w={66} />
     </g>
   );

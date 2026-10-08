@@ -242,6 +242,10 @@
 @utility pb-tabbar {
   padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
 }
+/* wie pb-tabbar, zusätzlich Platz für die Demo-Pille über der Tab-Leiste */
+@utility pb-tabbar-demo {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 8.25rem);
+}
 @utility bottom-safe-4 {
   bottom: calc(env(safe-area-inset-bottom) + 1rem);
 }

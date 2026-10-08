@@ -10,6 +10,8 @@ import type { BusinessRequestInput, ID, RegisterInput, Session, User } from '@sh
 import { ApiError } from '@shared/api';
 import { api, setAuthToken } from '@/api/client';
 import { readStorage, writeStorage } from '@/lib/storage';
+import { isCustomerRole } from '@/lib/roles';
+import { useCart } from '@/stores/cart';
 import { removeUserQueries, resetUserQueries, setUnauthorizedHandler } from '@/lib/queryClient';
 
 export const TOKEN_KEY = 'altinger.token';
@@ -62,6 +64,8 @@ export const useSession = create<SessionState>()((set, get) => {
       token,
     });
     const nextUserId = session?.user.id ?? null;
+    // Warenkorb-Angaben (Adresse, Zahlart, Kostenstelle …) gehören zum jeweiligen Kunden
+    if (session && isCustomerRole(session.user.role)) useCart.getState().bindUser(session.user.id);
     if (prevUserId !== nextUserId) {
       if (session) void resetUserQueries();
       // Abmelden: erst nach dem Rendern aufräumen, damit geschützte Seiten zuvor wegnavigieren

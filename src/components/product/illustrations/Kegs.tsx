@@ -41,15 +41,15 @@ export function SteelKeg({ product, uid }: IllustrationProps) {
         <rect x={x} y={top} width={w} height={base - top} rx={8} fill={band} />
         <rect x={x} y={top + 26} width={w} height={22} fill={product.accent} />
         <FitText x={100} y={top + 41.5} width={w - 10} text={brandLabel(product)} size={11} fill={isLight(product.accent) ? shade(band, -0.2) : '#fff'} spacing={0.8} />
-        <FitText x={100} y={top + 70} width={w - 12} text="PARTYFASS" size={8} fill="#fff" weight={700} spacing={1.4} opacity={0.9} />
-        <FitText x={100} y={top + 82} width={w - 12} text={`${String(product.unitVolumeL).replace('.', ',')} LITER`} size={7.5} fill="#fff" weight={700} spacing={1.2} opacity={0.8} />
+        <FitText x={100} y={top + 60} width={w - 12} text="PARTYFASS" size={8} fill="#fff" weight={700} spacing={1.4} opacity={0.9} />
+        <FitText x={100} y={top + 71} width={w - 12} text={`${String(product.unitVolumeL).replace('.', ',')} LITER`} size={7.5} fill="#fff" weight={700} spacing={1.2} opacity={0.8} />
         <rect x={x} y={top} width={w} height={base - top} rx={8} fill={`url(#${uid}-print)`} />
         <rect x={x - 2} y={top - 4} width={w + 4} height={9} rx={4} fill={`url(#${metal})`} />
         <rect x={x - 2} y={base - 6} width={w + 4} height={8} rx={4} fill={`url(#${metal})`} />
         {/* Zapfhahn */}
-        <rect x={93} y={base - 30} width={14} height={8} rx={2} fill="#1f2937" />
-        <rect x={97} y={base - 22} width={6} height={9} rx={2} fill="#111827" />
-        <rect x={98} y={base - 44} width={4} height={15} rx={2} fill="#dc2626" />
+        <rect x={98.5} y={base - 37} width={3} height={10} rx={1.5} fill="#dc2626" />
+        <rect x={93} y={base - 28} width={14} height={8} rx={2} fill="#1f2937" />
+        <rect x={97} y={base - 21} width={6} height={8} rx={2} fill="#111827" />
       </g>
     );
   }

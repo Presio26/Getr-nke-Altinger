@@ -8,7 +8,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { createSeedDb, isSeedStale, type Db } from '../shared/core/index';
+import { createSeedDb, isSeedStale, reseedDb, type Db } from '../shared/core/index';
 import { SCHEMA_VERSION } from '../shared/core/db';
 
 export type LoadSource = 'file' | 'seed';
@@ -103,7 +103,8 @@ export function loadDb(file: string, now: Date, options: LoadOptions = {}): Load
 
   if ('db' in read) {
     if (reseedStale && isSeedStale(read.db, now)) {
-      const db = createSeedDb(now);
+      // neuer Tag: frische Demo-Daten, Anmeldungen bleiben erhalten
+      const db = reseedDb(read.db, now);
       writeDbFileSync(file, db);
       return { db, source: 'seed', reason: 'stale' };
     }

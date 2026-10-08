@@ -150,6 +150,8 @@ export function createCore(options: CoreOptions): Core;
 export function createSeedDb(now: Date): Db;
 /** true, wenn die Demo-Daten von einem früheren Kalendertag stammen (dann neu seeden) */
 export function isSeedStale(db: Db, now: Date): boolean;
+/** frische Demo-Daten; Anmeldungen (sessions) bekannter Nutzer bleiben erhalten (Demo-Reset, Tageswechsel) */
+export function reseedDb(previous: Pick<Db, 'sessions'> | null | undefined, now: Date): Db;
 export type { Db };
 ```
 
@@ -291,7 +293,8 @@ Weitere gemeinsame Bausteine:
   `StopMarker { position: GeoPoint; index: number; status?: StopStatus; label?; onClick? }`, `HomeMarker { position; label? }`, `RouteLine { coords: LatLng[]; color?; dashed?; weight? }`, `ZoneCircles { zones }`.
 - `@/components/brand`: `Logo { variant?: 'full'|'mark'|'white'; className? }`.
 - `@/components/layout`: `ShopLayout`, `DriverLayout`, `AdminLayout`, `RequireRole { roles: Role[]; children }`.
-- `@/stores/cart`: `useCart()` → `{ items, emptiesReturn, fulfillment, slotId, addressId, carryService, paymentMethod, couponCode, notes, reference, costCenter, eventDate, commission, add(productId, qty?), setQty(productId, qty), remove(productId), setEmpties(depositTypeId, qty), set(patch), clear(), count() }`.
+- `@/stores/cart`: `useCart()` → `{ items, emptiesReturn, fulfillment, slotId, addressId, carryService, paymentMethod, couponCode, notes, reference, costCenter, eventDate, commission, add(productId, qty?), setQty(productId, qty), remove(productId), setEmpties(depositTypeId, qty), set(patch), clear(), count(), qtyOf(productId), ownerId, bindUser(userId) }`.
+  Der Warenkorb ist an den angemeldeten Kunden gebunden (`ownerId`, setzt der Session-Store): Wechselt der Kunde, werden Adresse, Zeitfenster, Zahlart, Tragservice, Gutschein, Referenz und Kostenstelle zurückgesetzt – Artikel und Leergut bleiben. Die Kasse muss trotzdem prüfen, ob `addressId` zu den Adressen des Kunden gehört.
 - `@/stores/session`: `useSession()` → `{ status: 'loading'|'guest'|'authenticated', session, user, login(email, pw), demoLogin(userId), logout(), refresh() }`; Hilfs-Hook `useUser()`.
 - `@/api/hooks`: `qk`, `useBootstrap()`, `useSettings()`, `useCategories()`, `useDepositTypes()`, `useProducts()`, `useProduct(id)`, `useMyCustomer()`, `useMyOrders()`, `useOrder(id)`, `useTracking(id)`, `useNotifications()`, `useQuote(input, enabled?)`, `useSlots(query)`, `usePrice(product, qty?)`, `useApiMutation(fn, { invalidate?: QueryKey[]; success?: string })`.
 - `@shared/format`: `formatEuro`, `formatDate`, `formatDateTime`, `formatTime`, `formatSlot`, `formatRelative`, `formatDistance`, `formatDuration`, `formatLiters`, `basePrice`, `ORDER_STATUS_LABEL`, `PAYMENT_METHOD_LABEL`, `FULFILLMENT_LABEL`, `SEGMENT_LABEL`, `PRICE_GROUP_LABEL`, `WEEKDAY_LABEL`, `INTERVAL_LABEL`.
