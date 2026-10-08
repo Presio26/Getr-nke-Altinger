@@ -145,7 +145,7 @@ const shopRoutes: RouteObject[] = [
   { path: 'business', element: guard(['business'], <BusinessDashboardPage />) },
   { path: 'business/schnellbestellung', element: guard(['business'], <QuickOrderPage />) },
   { path: 'business/rechnungen', element: guard(['business'], <InvoicesPage />) },
-  { path: 'business/rechnungen/:invoiceId', element: guard(['business'], <InvoiceDetailPage />) },
+  { path: 'business/rechnungen/:invoiceId', element: guard(['business', 'admin'], <InvoiceDetailPage />) },
   { path: 'business/dauerauftraege', element: guard(['business'], <StandingOrdersPage />) },
   { path: 'business/standorte', element: guard(['business'], <LocationsPage />) },
   { path: 'demo', element: <DemoGuidePage /> },
