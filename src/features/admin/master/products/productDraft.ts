@@ -45,12 +45,12 @@ export interface ProductDraft {
 export type DraftErrors = Partial<Record<keyof ProductDraft | `tier-${string}` | 'tiers', string>>;
 
 export const MATERIAL_OPTIONS: { value: Material; label: string }[] = [
-  { value: 'glas', label: 'Glas (Mehrweg)' },
+  { value: 'glas', label: 'Glas' },
   { value: 'pet', label: 'PET' },
   { value: 'dose', label: 'Dose' },
   { value: 'fass', label: 'Fass' },
-  { value: 'tetra', label: 'Tetra-Pak / Karton' },
-  { value: 'sonstiges', label: 'Sonstiges / Leihartikel' },
+  { value: 'tetra', label: 'Tetra-Pak' },
+  { value: 'sonstiges', label: 'Sonstiges' },
 ];
 
 export const TAG_SUGGESTIONS: { value: string; label: string }[] = [
