@@ -4,6 +4,7 @@
 import type { Invoice, InvoiceStatus, Order } from '../types';
 import { todayString } from '../time';
 import type { Db } from './db';
+import { DEPOSIT_REFUND_VAT_RATE } from './pricing';
 
 /** Status zum Stichtag: bezahlt bleibt bezahlt, sonst überfällig, wenn Fälligkeit < heute */
 export function invoiceStatus(invoice: Invoice, now: Date): InvoiceStatus {
@@ -16,18 +17,24 @@ export function withInvoiceStatus(invoice: Invoice, now: Date): Invoice {
   return { ...invoice, status: invoiceStatus(invoice, now) };
 }
 
-/** Summen einer Rechnung aus den Bestellungen: netto + MwSt. + Pfand − Leergut = brutto */
+/**
+ * Summen einer Rechnung aus den Bestellungen: netto + MwSt. + Pfand − Leergut = brutto.
+ * Pfand und Leergut sind umsatzsteuerpflichtig (Satz des Artikels bzw. 19 %): ihre MwSt. steckt in `vat`,
+ * `deposit`/`depositRefund` sind daher Nettobeträge; `net` ist der Nettobetrag von Ware und Gebühren.
+ */
 export function invoiceTotals(orders: readonly Order[]): Pick<Invoice, 'net' | 'vat' | 'deposit' | 'depositRefund' | 'gross'> {
   let vat = 0;
-  let deposit = 0;
-  let depositRefund = 0;
+  let depositNet = 0;
+  let refundNet = 0;
   let gross = 0;
   for (const o of orders) {
     vat += o.totals.vat;
-    deposit += o.totals.deposit;
-    depositRefund += o.totals.depositRefund;
     gross += o.totals.total;
+    for (const l of o.lines) if (l.depositTotal) depositNet += (l.depositTotal * 100) / (100 + l.vatRate);
+    refundNet += (o.totals.depositRefund * 100) / (100 + DEPOSIT_REFUND_VAT_RATE);
   }
+  const deposit = Math.round(depositNet);
+  const depositRefund = Math.round(refundNet);
   return { net: gross - vat - deposit + depositRefund, vat, deposit, depositRefund, gross };
 }
 
@@ -38,7 +45,8 @@ function isUnbilledCredit(o: Order): boolean {
 
 /**
  * Offene Posten eines Kunden (Cent): unbezahlte Rechnungen + noch nicht abgerechnete
- * Rechnungs-/SEPA-Bestellungen.
+ * Rechnungs-/SEPA-Bestellungen. Bestellungen mit Leergut-Auszahlung (negativer Betrag) senken die
+ * offenen Posten nicht – sonst ließe sich das Kreditlimit mit angemeldetem Leergut aushebeln.
  */
 export function openAmountForCustomer(db: Db, customerId: string, now: Date): number {
   let sum = 0;
@@ -46,7 +54,7 @@ export function openAmountForCustomer(db: Db, customerId: string, now: Date): nu
     if (inv.customerId === customerId && invoiceStatus(inv, now) !== 'paid') sum += inv.gross;
   }
   for (const o of db.orders) {
-    if (o.customerId === customerId && isUnbilledCredit(o)) sum += o.totals.total;
+    if (o.customerId === customerId && isUnbilledCredit(o)) sum += Math.max(0, o.totals.total);
   }
   return sum;
 }

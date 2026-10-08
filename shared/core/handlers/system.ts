@@ -6,6 +6,7 @@ import type { DemoUser } from '../../types';
 import type { Engine } from '../engine';
 import { reseedDb } from '../seed';
 import { DEMO_USER_INFO } from '../seed/people';
+import { publicSettings } from '../access';
 
 export const CORE_VERSION = '1.0.0';
 
@@ -23,7 +24,7 @@ export function systemHandlers(e: Engine): Pick<CoreHandlers, 'getBootstrap' | '
     getBootstrap(ctx) {
       const db = e.db;
       return {
-        settings: db.settings,
+        settings: ctx.user?.role === 'admin' ? db.settings : publicSettings(db.settings),
         categories: [...db.categories].sort((a, b) => a.sort - b.sort),
         depositTypes: db.depositTypes,
         demoUsers: e.demoMode ? demoUsers(e) : [],

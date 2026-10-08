@@ -14,10 +14,10 @@ import type {
   Quote,
   StatusChange,
 } from '../types';
-import { addMinutesIso, berlinDate } from '../time';
+import { addMinutesIso, berlinDate, isDayString } from '../time';
 import { formatDate, formatDateTime, formatEuro, formatTime, orderStatusLabel } from '../format';
 import type { Engine } from './engine';
-import { calculateQuote, type QuoteContext } from './pricing';
+import { calculateQuote, DEPOSIT_REFUND_VAT_RATE, vatPart, type QuoteContext } from './pricing';
 import { findSlot, parseSlotId } from './slots';
 import { emitOrder, emitProduct, notifyAdmin, notifyCustomer } from './notify';
 import { randomPickupCode } from './util';
@@ -208,7 +208,9 @@ export function applyCompletion(e: Engine, order: Order, collected: EmptiesLine[
   const refund = collected.reduce((s, l) => s + (types.find((t) => t.id === l.depositTypeId && t.returnable)?.amount ?? 0) * l.qty, 0);
   if (refund !== order.totals.depositRefund) {
     const diff = refund - order.totals.depositRefund;
-    order.totals = { ...order.totals, depositRefund: refund, total: order.totals.total - diff };
+    // die Gutschrift mindert das Entgelt → enthaltene MwSt. mit anpassen
+    const vat = Math.round(order.totals.vat - vatPart(diff, DEPOSIT_REFUND_VAT_RATE));
+    order.totals = { ...order.totals, depositRefund: refund, total: order.totals.total - diff, vat };
   }
   order.paymentStatus = paymentStatusOnCompletion(order);
   if (!customer) return;
@@ -228,6 +230,16 @@ export function applyCompletion(e: Engine, order: Order, collected: EmptiesLine[
 }
 
 // ───────────────────────────── Neue Bestellung ─────────────────────────────
+
+/** Leergut-Zeilen je Art zusammenfassen (ungültige/leere Zeilen entfallen) */
+export function mergeEmpties(list: readonly EmptiesLine[] | undefined | null): EmptiesLine[] {
+  const map = new Map<string, number>();
+  for (const l of Array.isArray(list) ? list : []) {
+    if (!l || typeof l.depositTypeId !== 'string' || !Number.isInteger(l.qty) || l.qty <= 0) continue;
+    map.set(l.depositTypeId, (map.get(l.depositTypeId) ?? 0) + l.qty);
+  }
+  return [...map].map(([depositTypeId, qty]) => ({ depositTypeId, qty }));
+}
 
 /** Nächste Bestellnummer: "AL-<seq>" */
 export function nextOrderNumber(e: Engine): { id: string; number: string } {
@@ -258,6 +270,8 @@ export function quoteContextFor(e: Engine, customer: Customer | null, now: Date,
     orders: e.db.orders,
   };
   if (address !== undefined) qc.address = address;
+  // angemeldete Leergut-Rückgabe nur im Rahmen des Leergut-Kontos (+ gelieferte Gebinde)
+  if (customer) qc.depositBalance = customer.depositBalance ?? {};
   if (customer?.type === 'b2b') qc.openAmount = openAmountForCustomer(e.db, customer.id, now);
   return qc;
 }
@@ -318,9 +332,7 @@ export function createOrder(e: Engine, params: CreateOrderParams): { order: Orde
     fulfillment: input.fulfillment,
     slot: { id: slot.id, date: slot.date, start: slot.start, end: slot.end },
     lines: quote.lines,
-    emptiesReturn: (input.emptiesReturn ?? [])
-      .filter((l) => !!l && typeof l.depositTypeId === 'string' && Number.isInteger(l.qty) && l.qty > 0)
-      .map((l) => ({ depositTypeId: l.depositTypeId, qty: l.qty })),
+    emptiesReturn: mergeEmpties(input.emptiesReturn),
     carryService: input.fulfillment === 'delivery' && !!input.carryService,
     paymentMethod: input.paymentMethod,
     paymentStatus: input.paymentMethod === 'paypal' || input.paymentMethod === 'card' ? 'paid' : 'open',
@@ -336,7 +348,7 @@ export function createOrder(e: Engine, params: CreateOrderParams): { order: Orde
   if (reference) order.reference = reference;
   const costCenter = text(input.costCenter, 80);
   if (costCenter) order.costCenter = costCenter;
-  if (input.eventDate) order.eventDate = input.eventDate;
+  if (isDayString(input.eventDate)) order.eventDate = input.eventDate;
   if (input.commission) order.commission = true;
   if (quote.loyaltyPointsEarned) order.loyaltyPointsEarned = quote.loyaltyPointsEarned;
   if (params.subscriptionId) order.subscriptionId = params.subscriptionId;

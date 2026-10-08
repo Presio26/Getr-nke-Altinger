@@ -7,7 +7,7 @@ import { addDays, todayString } from '../../time';
 import { formatDate, formatEuro } from '../../format';
 import type { Engine } from '../engine';
 import { nextId } from '../db';
-import { findCustomer, findInvoice, requireAdmin, requireUser } from '../access';
+import { findCustomer, findInvoice, publicSettings, requireAdmin, requireUser } from '../access';
 import { billableOrders, invoiceNumber, invoiceTotals, withInvoiceStatus } from '../invoices';
 import { emitInvoice, emitOrder, notifyCustomer } from '../notify';
 import { visibleCustomer } from './customer';
@@ -38,7 +38,7 @@ export function invoiceHandlers(
         invoice: withInvoiceStatus(invoice, ctx.now),
         orders,
         customer: isAdmin ? customer : visibleCustomer(customer),
-        settings: e.db.settings,
+        settings: isAdmin ? e.db.settings : publicSettings(e.db.settings),
       };
     },
 

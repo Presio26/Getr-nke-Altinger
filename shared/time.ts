@@ -78,6 +78,14 @@ export function addDays(day: DayString, n: number): DayString {
   return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
 }
 
+/**
+ * true für einen echten Kalendertag "YYYY-MM-DD" (z. B. nicht "2026-10-33" oder "2026-02-30" –
+ * solche Werte würden addDays/weekdayOf/berlinDate stillschweigend in den Folgemonat umrechnen).
+ */
+export function isDayString(value: unknown): value is DayString {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && addDays(value, 0) === value;
+}
+
 /** Differenz in Kalendertagen (b − a) */
 export function diffDays(a: DayString, b: DayString): number {
   const [y1, m1, d1] = a.split('-').map(Number);

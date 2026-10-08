@@ -2,7 +2,7 @@
  * Berechtigungsprüfungen und Lookups mit deutschen Fehlermeldungen.
  */
 import { ApiError, type Ctx } from '../api';
-import type { Customer, Driver, Invoice, Order, Product, Role, Subscription, Tour, User } from '../types';
+import type { Customer, Driver, Invoice, Order, Product, Role, StoreSettings, Subscription, Tour, User } from '../types';
 import type { Engine } from './engine';
 
 export const MSG = {
@@ -16,6 +16,14 @@ export const MSG = {
   invoiceNotFound: 'Die Rechnung wurde nicht gefunden.',
   subscriptionNotFound: 'Das Abo wurde nicht gefunden.',
 } as const;
+
+/**
+ * Einstellungen für alle außer dem Markt: ohne inaktive (vorbereitete bzw. abgeschaltete) Gutscheincodes.
+ * Aktive Codes bleiben vorerst enthalten – die Gutschein-Eingabe im Shop prüft sie vorab lokal.
+ */
+export function publicSettings(settings: StoreSettings): StoreSettings {
+  return { ...settings, coupons: settings.coupons.filter((c) => c.active) };
+}
 
 export function requireUser(ctx: Ctx): User {
   if (!ctx.user) throw new ApiError('unauthorized', MSG.unauthorized);

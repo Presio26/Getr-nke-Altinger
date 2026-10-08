@@ -16,14 +16,15 @@ import type {
 } from '../../types';
 import type { Engine } from '../engine';
 import { nextId } from '../db';
-import { actorLabel, findCustomer, findOrder, findProduct, requireAdmin } from '../access';
+import { actorLabel, findCustomer, findOrder, findProduct, publicSettings, requireAdmin } from '../access';
 import { adminSetStatusOp } from '../lifecycle';
 import { ORDER_TRANSITIONS } from '../orderOps';
 import { addNotification, emitCustomer, emitDriver, emitProduct, notifyAdmin, notifyCustomer } from '../notify';
 import { withInvoiceStatus } from '../invoices';
 import { computeStats } from '../stats';
 import { activeTourOf } from '../tourOps';
-import { DAY_RE, isInt, isNonEmptyString, publicUser, slugify, TIME_RE, ZIP_RE } from '../util';
+import { isInt, isNonEmptyString, publicUser, slugify, TIME_RE, ZIP_RE } from '../util';
+import { isDayString } from '../../time';
 import { formatDate, SEGMENT_LABEL, PRICE_GROUP_LABEL } from '../../format';
 
 const DRIVER_STATUSES: DriverStatus[] = ['off', 'available', 'on_tour', 'break'];
@@ -95,7 +96,7 @@ function validateSettings(input: StoreSettings, current: StoreSettings): StoreSe
     const out: StoreSettings['coupons'][number] = { code, description: text(c.description, 200), type: c.type, value: c.value, active: !!c.active };
     if (c.minOrder !== undefined && c.minOrder !== null) out.minOrder = cents(c.minOrder, `Gutschein ${code}`);
     if (c.validUntil) {
-      if (!DAY_RE.test(c.validUntil)) throw new ApiError('validation', `Gutschein ${code}: ungültiges Datum.`);
+      if (!isDayString(c.validUntil)) throw new ApiError('validation', `Gutschein ${code}: ungültiges Datum.`);
       out.validUntil = c.validUntil;
     }
     if (c.b2cOnly) out.b2cOnly = true;
@@ -170,7 +171,7 @@ function validateProduct(e: Engine, input: Product, existing?: Product): Product
   if (typeof input.alcoholPercent === 'number' && input.alcoholPercent >= 0 && input.alcoholPercent <= 100) p.alcoholPercent = input.alcoholPercent;
   if (input.offer) {
     if (!isInt(input.offer.priceGross) || input.offer.priceGross <= 0) throw new ApiError('validation', 'Angebot: ungültiger Preis.');
-    if (!DAY_RE.test(String(input.offer.validUntil))) throw new ApiError('validation', 'Angebot: bitte ein Enddatum angeben.');
+    if (!isDayString(input.offer.validUntil)) throw new ApiError('validation', 'Angebot: bitte ein Enddatum angeben.');
     p.offer = { priceGross: input.offer.priceGross, validUntil: input.offer.validUntil, ...(text(input.offer.label) ? { label: text(input.offer.label, 40) } : {}) };
   }
   if (Array.isArray(input.tierPrices) && input.tierPrices.length) {
@@ -302,12 +303,12 @@ export function adminHandlers(
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
 
-    adminUpdateOrderStatus(ctx, orderId, status, note) {
+    adminUpdateOrderStatus(ctx, orderId, status, note, emptiesCollected) {
       const user = requireAdmin(ctx);
       if (!Object.prototype.hasOwnProperty.call(ORDER_TRANSITIONS, status)) throw new ApiError('validation', 'Unbekannter Status.');
       const order = findOrder(e, orderId);
       const n = typeof note === 'string' && note.trim() ? note.trim().slice(0, 300) : undefined;
-      adminSetStatusOp(e, order, status as OrderStatus, ctx.now, actorLabel(e, user), n);
+      adminSetStatusOp(e, order, status as OrderStatus, ctx.now, actorLabel(e, user), n, emptiesCollected);
       return order;
     },
 
@@ -474,7 +475,9 @@ export function adminHandlers(
       requireAdmin(ctx);
       const settings = validateSettings(input, e.db.settings);
       e.db.settings = settings;
-      e.emit({ type: 'settings.updated', settings }, { all: true });
+      // alle ohne interne Gutscheine, danach vollständig an den Markt (kommt bei Admins zuletzt an)
+      e.emit({ type: 'settings.updated', settings: publicSettings(settings) }, { all: true });
+      e.emit({ type: 'settings.updated', settings }, { admin: true });
       return settings;
     },
 

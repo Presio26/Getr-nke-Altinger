@@ -109,8 +109,9 @@ export function orderHandlers(
     },
 
     getTracking(ctx, orderId) {
-      const { order } = requireVisibleOrder(e, ctx, orderId);
-      return buildTracking(e, order, ctx.now);
+      const { user, order } = requireVisibleOrder(e, ctx, orderId);
+      const staff = user.role === 'admin' || user.role === 'driver';
+      return buildTracking(e, order, ctx.now, { viewer: staff ? 'staff' : 'customer' });
     },
   };
 }

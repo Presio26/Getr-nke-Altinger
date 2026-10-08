@@ -431,7 +431,7 @@ export interface Totals {
   depositRefund: number;
   deliveryFee: number;
   carryFee: number;
-  /** enthaltene MwSt. */
+  /** enthaltene MwSt. (auch auf Pfand; die Leergut-Gutschrift mindert sie) */
   vat: number;
   /** Endbetrag brutto = itemsGross − discount + deposit − depositRefund + deliveryFee + carryFee (kann bei viel Leergut negativ sein = Auszahlung) */
   total: number;
@@ -611,9 +611,13 @@ export interface Invoice {
   orderIds: ID[];
   date: DayString;
   dueDate: DayString;
+  /** Nettobetrag Ware + Gebühren − Rabatt; net + vat + deposit − depositRefund = gross */
   net: number;
+  /** MwSt. gesamt (inkl. MwSt. auf Pfand, gemindert um die Leergut-Gutschrift) */
   vat: number;
+  /** Pfand netto */
   deposit: number;
+  /** Leergut-Gutschrift netto */
   depositRefund: number;
   gross: number;
   status: InvoiceStatus;

@@ -98,6 +98,7 @@ export function firstName(name: string): string {
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+/** nur das Format – echte Kalendertage prüft isDayString (shared/time.ts) */
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const ZIP_RE = /^\d{5}$/;

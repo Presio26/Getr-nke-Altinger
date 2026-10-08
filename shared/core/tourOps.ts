@@ -74,6 +74,30 @@ export function summarizeRoute(legs: RouteLeg[]): NonNullable<Tour['route']> {
   };
 }
 
+/** Zwei aufeinanderfolgende Abschnitte zu einem verbinden (Straßengeometrie bleibt erhalten) */
+export function joinLegs(a: RouteLeg, b: RouteLeg): RouteLeg {
+  return { coords: [...a.coords, ...b.coords.slice(1)], distance: a.distance + b.distance, duration: a.duration + b.duration };
+}
+
+/**
+ * Route ohne Netzwerk auf eine Teilmenge der Stopps kürzen (Reihenfolge bleibt; `keep[i]` je Stopp):
+ * Abschnitte über entfallene Stopps werden verbunden. null, wenn die Route nicht zu den Stopps passt.
+ */
+export function pruneRoute(route: NonNullable<Tour['route']>, keep: readonly boolean[]): NonNullable<Tour['route']> | null {
+  if (route.legs.length !== keep.length + 1) return null;
+  if (!keep.some(Boolean)) return { legs: [], distance: 0, duration: 0 };
+  const legs: RouteLeg[] = [];
+  let pending: RouteLeg | undefined;
+  route.legs.forEach((leg, i) => {
+    pending = pending ? joinLegs(pending, leg) : leg;
+    if (i === keep.length || keep[i]) {
+      legs.push(pending);
+      pending = undefined;
+    }
+  });
+  return summarizeRoute(legs);
+}
+
 /** Index des nächsten offenen Stopps nach `after` (sonst erster offener; alle erledigt → stops.length) */
 export function nextOpenStopIndex(tour: Tour, after = -1): number {
   for (let i = after + 1; i < tour.stops.length; i++) if (isStopOpen(tour.stops[i])) return i;

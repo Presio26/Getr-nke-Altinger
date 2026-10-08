@@ -3,10 +3,10 @@
  * die sowohl Bestellungen als auch Touren betreffen.
  */
 import { ApiError } from '../api';
-import type { Order, OrderStatus } from '../types';
+import type { EmptiesLine, Order, OrderStatus } from '../types';
 import type { Engine } from './engine';
 import { assertTransition, restoreStock, transitionOrder, applyCompletion, uniquePickupCode } from './orderOps';
-import { completeOp, detachOrderFromTour, failOp, isStopDone } from './tourOps';
+import { completeOp, detachOrderFromTour, failOp, isStopDone, sanitizeProof } from './tourOps';
 import { notifyAdmin } from './notify';
 
 /** Bestellung stornieren: aus Tour lösen, Bestand zurückbuchen, benachrichtigen */
@@ -34,8 +34,26 @@ export function cancelOrderOp(e: Engine, order: Order, now: Date, by: string, re
   }
 }
 
+/**
+ * Tatsächlich angenommenes Leergut (vom Markt erfasst, geprüft und je Art zusammengefasst);
+ * ohne Angabe die bei der Bestellung angemeldete (bereits geprüfte) Rückgabe.
+ */
+function collectedEmpties(e: Engine, order: Order, input: unknown, now: Date): EmptiesLine[] {
+  if (input === undefined || input === null) return order.emptiesReturn.map((l) => ({ ...l }));
+  if (!Array.isArray(input)) throw new ApiError('validation', 'Bitte geben Sie beim Leergut gültige Mengen an.');
+  return sanitizeProof(e, { emptiesCollected: input as EmptiesLine[] }, now, []).emptiesCollected;
+}
+
 /** Statuswechsel durch den Markt inkl. aller Nebenwirkungen */
-export function adminSetStatusOp(e: Engine, order: Order, status: OrderStatus, now: Date, by: string, note?: string): void {
+export function adminSetStatusOp(
+  e: Engine,
+  order: Order,
+  status: OrderStatus,
+  now: Date,
+  by: string,
+  note?: string,
+  emptiesCollected?: unknown,
+): void {
   if (order.status === status) return;
   switch (status) {
     case 'cancelled':
@@ -46,7 +64,7 @@ export function adminSetStatusOp(e: Engine, order: Order, status: OrderStatus, n
       completeOp(
         e,
         order,
-        { at: now.toISOString(), emptiesCollected: order.emptiesReturn.map((l) => ({ ...l })), note: note ?? 'Vom Markt als zugestellt markiert' },
+        { at: now.toISOString(), emptiesCollected: collectedEmpties(e, order, emptiesCollected, now), note: note ?? 'Vom Markt als zugestellt markiert' },
         now,
         by,
       );
@@ -58,7 +76,7 @@ export function adminSetStatusOp(e: Engine, order: Order, status: OrderStatus, n
     }
     case 'picked_up': {
       assertTransition(order, 'picked_up');
-      applyCompletion(e, order, order.emptiesReturn);
+      applyCompletion(e, order, collectedEmpties(e, order, emptiesCollected, now));
       const change = note ? { by, note } : { by };
       transitionOrder(e, order, 'picked_up', now, change);
       return;

@@ -4,7 +4,7 @@
  */
 import { ApiError, type CoreHandlers, type Ctx } from '../../api';
 import type { CheckoutInput, Customer, Product } from '../../types';
-import { todayString } from '../../time';
+import { isDayString, todayString } from '../../time';
 import type { Engine } from '../engine';
 import { findProduct } from '../access';
 import { calculateQuote, checkCoupon, findCoupon, rentalReserved } from '../pricing';
@@ -12,7 +12,6 @@ import { quoteContextFor } from '../orderOps';
 import { findSlot, generateSlots, parseSlotId } from '../slots';
 import { zoneForZip } from '../geo';
 import { safeSearch } from '../routing';
-import { DAY_RE } from '../util';
 
 /** Kundendatensatz des angemeldeten Kunden (oder null für Gäste/Personal) */
 export function ctxCustomer(e: Engine, ctx: Ctx): Customer | null {
@@ -96,7 +95,7 @@ export function catalogHandlers(
     },
 
     rentalAvailability(ctx, date) {
-      if (typeof date !== 'string' || !DAY_RE.test(date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
+      if (!isDayString(date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
       void ctx;
       return e.db.products
         .filter((p) => p.isRental && p.active)

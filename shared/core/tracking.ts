@@ -1,5 +1,9 @@
 /**
  * Sendungsverfolgung: Restroute bis zum Kunden und geschätzte Ankunft.
+ *
+ * Datenschutz (Kundensicht): Die Live-Position des Fahrers gibt es nur, solange der eigene Auftrag auf der
+ * aktiven Tour unterwegs ist (wie positionAudience). Die Restroute nur, wenn der Fahrer bereits auf dem
+ * Abschnitt zum eigenen Stopp ist – Abschnitte zu anderen Kunden würden deren Lieferadressen verraten.
  */
 import type { LatLng, Order, TrackingInfo } from '../types';
 import type { Engine } from './engine';
@@ -22,13 +26,20 @@ function concat(parts: LatLng[][]): LatLng[] {
 
 const minutesCeil = (ms: number) => Math.max(1, Math.ceil(ms / 60_000));
 
-export function buildTracking(e: Engine, order: Order, now: Date): TrackingInfo {
+export interface TrackingOptions {
+  /** 'customer' (Default): nur eigene Daten; 'staff' (Markt/Fahrer): vollständige Restroute und Position */
+  viewer?: 'customer' | 'staff';
+}
+
+export function buildTracking(e: Engine, order: Order, now: Date, options: TrackingOptions = {}): TrackingInfo {
+  const staff = options.viewer === 'staff';
   const s = e.db.settings;
   const info: TrackingInfo = {
     order,
     store: { lat: s.location.lat, lng: s.location.lng, name: s.name, phone: s.phone },
   };
   const driver = order.driverId ? e.db.drivers.find((d) => d.id === order.driverId) : undefined;
+  const tour = order.tourId ? e.db.tours.find((t) => t.id === order.tourId) : undefined;
   if (driver) {
     const d: NonNullable<TrackingInfo['driver']> = {
       id: driver.id,
@@ -38,10 +49,11 @@ export function buildTracking(e: Engine, order: Order, now: Date): TrackingInfo 
       color: driver.color,
       status: driver.status,
     };
-    if (driver.position) d.position = driver.position;
+    // Kunden: nur während der eigene Auftrag auf der aktiven Tour dieses Fahrers unterwegs ist
+    const live = order.status === 'out_for_delivery' && tour?.status === 'active' && tour.driverId === driver.id;
+    if (driver.position && (staff || live)) d.position = driver.position;
     info.driver = d;
   }
-  const tour = order.tourId ? e.db.tours.find((t) => t.id === order.tourId) : undefined;
   if (!tour) return info;
   const idx = tour.stops.findIndex((x) => x.orderId === order.id);
   if (idx < 0) return info;
@@ -66,7 +78,8 @@ export function buildTracking(e: Engine, order: Order, now: Date): TrackingInfo 
   }
 
   if (tour.status === 'planned') {
-    if (legs.length > idx) t.routeToCustomer = concat(legs.slice(0, idx + 1).map((l) => l.coords));
+    // Kunden: keine geplante Route (sie führt über die Adressen der Stopps davor)
+    if (staff && legs.length > idx) t.routeToCustomer = concat(legs.slice(0, idx + 1).map((l) => l.coords));
     const eta = estimateStopEtas(e, tour, now)[idx];
     if (eta !== undefined) info.etaMinutes = minutesCeil(eta - now.getTime());
     return info;
@@ -98,7 +111,7 @@ export function buildTracking(e: Engine, order: Order, now: Date): TrackingInfo 
     }
     let waitMs = 0;
     if (sim.dwellUntil && sim.legIndex < idx) waitMs = Math.max(0, Date.parse(sim.dwellUntil) - now.getTime());
-    t.routeToCustomer = concat(parts);
+    if (staff || sim.legIndex === idx) t.routeToCustomer = concat(parts);
     const openBefore = tour.stops.slice(sim.legIndex, idx).filter((x) => isStopOpen(x)).length;
     const extraDwell = Math.max(0, openBefore - (sim.dwellUntil ? 1 : 0)) * dwell;
     info.etaMinutes = minutesCeil((remainingS * 1000) / factor + waitMs + extraDwell);
@@ -111,7 +124,10 @@ export function buildTracking(e: Engine, order: Order, now: Date): TrackingInfo 
   const avgSpeed = tour.route && tour.route.duration > 0 ? tour.route.distance / tour.route.duration : FALLBACK_SPEED_MS;
   let remainingM = 0;
   const parts: LatLng[][] = [];
+  /** Route führt nur zum eigenen Stopp (keine Abschnitte zu anderen Kunden) */
+  let ownOnly = true;
   if (k >= 0 && k <= idx && legs[k]) {
+    ownOnly = k === idx;
     const leg = legs[k];
     const len = polylineLength(leg.coords);
     const { along } = projectOnPolyline(leg.coords, pos);
@@ -126,7 +142,8 @@ export function buildTracking(e: Engine, order: Order, now: Date): TrackingInfo 
     parts.push([pos, toLatLng(target)]);
     remainingM = haversine(pos, toLatLng(target)) * FALLBACK_DETOUR_FACTOR;
   }
-  if (parts.length) t.routeToCustomer = concat(parts);
+  // Kunden: Restroute erst auf dem Abschnitt zum eigenen Stopp (bzw. Luftlinie ohne Route)
+  if (parts.length && (staff || ownOnly)) t.routeToCustomer = concat(parts);
   info.etaMinutes = minutesCeil((remainingM / Math.max(1, avgSpeed)) * 1000 + stopsBefore * STOP_DWELL_MS);
   return info;
 }

@@ -7,7 +7,7 @@
  * Abholung settings.pickupCutoffMinutes (Default 30).
  */
 import type { DayString, FulfillmentType, Order, SlotQuery, SlotTemplate, StoreSettings, TimeSlot, TimeString } from '../types';
-import { addDays, berlinDate, todayString, weekdayOf } from '../time';
+import { addDays, berlinDate, isDayString, todayString, weekdayOf } from '../time';
 
 export const DEFAULT_PICKUP_CUTOFF_MINUTES = 30;
 const SLOT_ID_RE = /^(delivery|pickup)\|(\d{4}-\d{2}-\d{2})\|([0-2]\d:[0-5]\d)-([0-2]\d:[0-5]\d)$/;
@@ -19,7 +19,8 @@ export function slotIdOf(type: FulfillmentType, date: DayString, start: TimeStri
 export function parseSlotId(id: string | undefined | null): { type: FulfillmentType; date: DayString; start: TimeString; end: TimeString } | null {
   if (!id) return null;
   const m = SLOT_ID_RE.exec(id);
-  if (!m) return null;
+  // nur echte Kalendertage – "2026-10-33" wäre sonst ein zweites Fenster für den 02.11. (eigene Kapazität)
+  if (!m || !isDayString(m[2])) return null;
   return { type: m[1] as FulfillmentType, date: m[2], start: m[3], end: m[4] };
 }
 
@@ -84,7 +85,7 @@ export function generateSlots(
   options: { includePast?: boolean; excludeOrderId?: string } = {},
 ): TimeSlot[] {
   const type: FulfillmentType = query.type === 'pickup' ? 'pickup' : 'delivery';
-  const from = query.from && /^\d{4}-\d{2}-\d{2}$/.test(query.from) ? query.from : todayString(now);
+  const from = isDayString(query.from) ? query.from : todayString(now);
   const days = Math.max(1, Math.min(60, Math.floor(query.days ?? 7)));
   const out: TimeSlot[] = [];
   for (let i = 0; i < days; i++) {

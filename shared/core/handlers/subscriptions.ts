@@ -3,7 +3,7 @@
  */
 import { ApiError, type CoreHandlers } from '../../api';
 import type { CheckoutItem, DayString, Order, PaymentMethod, Subscription, SubscriptionInterval } from '../../types';
-import { addDays, todayString, weekdayOf } from '../../time';
+import { addDays, isDayString, todayString, weekdayOf } from '../../time';
 import { formatDate, WEEKDAY_LABEL } from '../../format';
 import type { Engine } from '../engine';
 import { nextId } from '../db';
@@ -12,7 +12,7 @@ import { createOrder, slotText } from '../orderOps';
 import { findSlot, generateSlots, nextWeekday, slotIdOf, templatesForDay } from '../slots';
 import { emitSubscription, notifyAdmin, notifyCustomer } from '../notify';
 import { B2B_EXTRA_PAYMENT_METHODS, B2C_PAYMENT_METHODS } from '../pricing';
-import { DAY_RE, TIME_RE } from '../util';
+import { TIME_RE } from '../util';
 
 const INTERVAL_DAYS: Record<SubscriptionInterval, number> = { weekly: 7, biweekly: 14, monthly: 28 };
 
@@ -23,7 +23,7 @@ export function advanceSubscriptionDate(date: DayString, interval: SubscriptionI
 /** Nächster passender Wochentag ab morgen (bzw. gewünschtes Datum, wenn es passt) */
 export function computeNextDate(weekday: number, today: DayString, preferred?: DayString): DayString {
   const tomorrow = addDays(today, 1);
-  if (preferred && DAY_RE.test(preferred) && preferred >= tomorrow && weekdayOf(preferred) === weekday) return preferred;
+  if (isDayString(preferred) && preferred >= tomorrow && weekdayOf(preferred) === weekday) return preferred;
   return nextWeekday(tomorrow, weekday);
 }
 
@@ -179,7 +179,7 @@ export function subscriptionHandlers(
 
     adminRunSubscriptions(ctx, untilDate) {
       requireAdmin(ctx);
-      if (typeof untilDate !== 'string' || !DAY_RE.test(untilDate)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
+      if (!isDayString(untilDate)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
       const today = todayString(ctx.now);
       const created: Order[] = [];
       for (const sub of [...e.db.subscriptions].sort((a, b) => a.nextDate.localeCompare(b.nextDate))) {

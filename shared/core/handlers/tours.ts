@@ -14,14 +14,19 @@ import {
   isStopDone,
   nextOpenStopIndex,
   orderPoint,
+  pruneRoute,
   recomputeEtas,
   storePoint,
+  summarizeRoute,
   tourOrders,
   withOrders,
 } from '../tourOps';
+import { straightLineLeg } from '../routing';
+import { formatDate } from '../../format';
 import { emitOrder, emitTour } from '../notify';
 import { distributeOrders, optimizeSequence } from '../planning';
-import { DAY_RE, firstName, TIME_RE } from '../util';
+import { firstName, TIME_RE } from '../util';
+import { isDayString } from '../../time';
 
 function tourNumberFor(e: Engine, date: string): number {
   return e.db.tours.filter((t) => t.date === date).length + 1;
@@ -50,7 +55,7 @@ export function tourHandlers(
   return {
     adminListTours(ctx, date) {
       requireAdmin(ctx);
-      if (typeof date !== 'string' || !DAY_RE.test(date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
+      if (!isDayString(date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
       return e.db.tours
         .filter((t) => t.date === date || (t.status === 'active' && t.date < date))
         .sort((a, b) => (a.plannedStart ?? '').localeCompare(b.plannedStart ?? '') || a.name.localeCompare(b.name))
@@ -60,54 +65,64 @@ export function tourHandlers(
     async adminSaveTour(ctx, input) {
       const user = requireAdmin(ctx);
       if (!input || typeof input !== 'object') throw new ApiError('validation', 'Ungültige Tourdaten.');
-      if (typeof input.date !== 'string' || !DAY_RE.test(input.date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
+      if (!isDayString(input.date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
       if (input.plannedStart !== undefined && input.plannedStart !== '' && !TIME_RE.test(String(input.plannedStart))) {
         throw new ApiError('validation', 'Bitte geben Sie eine gültige Startzeit (HH:MM) an.');
       }
       const driver = findDriver(e, input.driverId);
       const orderIds = Array.isArray(input.orderIds) ? [...new Set(input.orderIds.filter((x) => typeof x === 'string'))] : [];
       const existing = input.id ? findTour(e, input.id) : undefined;
-      if (existing?.status === 'completed') throw new ApiError('conflict', 'Abgeschlossene Touren können nicht mehr geändert werden.');
-      if (existing) assertNotSimulating(existing);
-      if (existing?.status === 'active' && existing.driverId !== driver.id) {
-        throw new ApiError('conflict', 'Der Fahrer einer laufenden Tour kann nicht gewechselt werden.');
-      }
 
-      const validate = (): Order[] =>
-        orderIds.map((id) => {
+      /** Prüfungen gegen den aktuellen Stand – vor UND nach dem await (Tour/Aufträge können sich inzwischen ändern) */
+      const check = (current: Tour | undefined): Order[] => {
+        if (current?.status === 'completed') throw new ApiError('conflict', 'Abgeschlossene Touren können nicht mehr geändert werden.');
+        if (current) assertNotSimulating(current);
+        if (current?.status === 'active' && current.driverId !== driver.id) {
+          throw new ApiError('conflict', 'Der Fahrer einer laufenden Tour kann nicht gewechselt werden.');
+        }
+        const orders = orderIds.map((id) => {
           const o = findOrder(e, id);
-          const inThis = !!existing && existing.stops.some((s) => s.orderId === id);
+          const inThis = !!current && current.stops.some((s) => s.orderId === id);
           if (o.fulfillment !== 'delivery') throw new ApiError('validation', `${o.number} ist eine Abholung und kann nicht ausgeliefert werden.`);
           if (o.status === 'cancelled') throw new ApiError('validation', `${o.number} wurde storniert.`);
           if (!inThis && !OPEN_STATUSES.includes(o.status)) {
             throw new ApiError('conflict', `${o.number} kann nicht mehr eingeplant werden (${orderStatusText(o)}).`);
           }
+          // Tourdatum = Liefertag (wie bei der automatischen Planung) – sonst ginge Ware für morgen heute los
+          if (o.slot.date !== input.date) {
+            throw new ApiError(
+              'conflict',
+              `${o.number} ist für den ${formatDate(o.slot.date, 'short')} bestellt und passt nicht zu einer Tour am ${formatDate(input.date, 'short')}.`,
+            );
+          }
           if (!orderPoint(o)) throw new ApiError('validation', `Für ${o.number} fehlen die Koordinaten der Lieferadresse.`);
-          if (o.tourId && o.tourId !== existing?.id) {
+          if (o.tourId && o.tourId !== current?.id) {
             const other = e.db.tours.find((t) => t.id === o.tourId);
             if (other?.simulation?.running) throw new ApiError('conflict', `„${other.name}“ wird gerade simuliert – bitte zuerst stoppen.`);
           }
           return o;
         });
-      validate();
-      if (existing?.status === 'active') {
-        for (const s of existing.stops) {
-          if (orderIds.includes(s.orderId)) continue;
-          const o = e.db.orders.find((x) => x.id === s.orderId);
-          if (isStopDone(s) || s.status === 'arrived' || o?.status === 'out_for_delivery') {
-            throw new ApiError('conflict', `${o?.number ?? 'Ein Auftrag'} ist bereits unterwegs bzw. zugestellt und kann nicht entfernt werden.`);
+        if (current?.status === 'active') {
+          for (const s of current.stops) {
+            if (orderIds.includes(s.orderId)) continue;
+            const o = e.db.orders.find((x) => x.id === s.orderId);
+            if (isStopDone(s) || s.status === 'arrived' || o?.status === 'out_for_delivery') {
+              throw new ApiError('conflict', `${o?.number ?? 'Ein Auftrag'} ist bereits unterwegs bzw. zugestellt und kann nicht entfernt werden.`);
+            }
           }
         }
-      }
+        return orders;
+      };
+      check(existing);
 
       const points = orderIds.map((id) => orderPoint(findOrder(e, id)) as GeoPoint);
       const route = await computeRoute(e, points);
 
-      // ── nach dem await: erneut prüfen und übernehmen ──
-      const orders = validate();
+      // ── nach dem await: alles erneut gegen den aktuellen Stand prüfen und übernehmen ──
       const now = ctx.now;
       let tour = existing ? e.db.tours.find((t) => t.id === existing.id) : undefined;
       if (existing && !tour) throw new ApiError('not_found', 'Die Tour wurde nicht gefunden.');
+      const orders = check(tour);
       if (!tour) {
         tour = {
           id: nextId(e.db, 't'),
@@ -208,7 +223,7 @@ export function tourHandlers(
 
     async adminAutoPlanTours(ctx, date) {
       requireAdmin(ctx);
-      if (typeof date !== 'string' || !DAY_RE.test(date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
+      if (!isDayString(date)) throw new ApiError('validation', 'Bitte geben Sie ein gültiges Datum an.');
       const drivers = e.db.drivers.filter((d) => d.status !== 'off');
       if (!drivers.length) {
         throw new ApiError('validation', 'Es ist kein Fahrer im Dienst. Bitte setzen Sie mindestens einen Fahrer auf „Verfügbar“.');
@@ -232,12 +247,20 @@ export function tourHandlers(
       }
 
       // ── nach den awaits übernehmen (nur Aufträge, die noch frei sind) ──
+      // Ab hier KEIN await mehr: Prüfen und Anlegen müssen ohne Unterbrechung laufen, sonst könnte ein
+      // paralleler Aufruf denselben Auftrag zwischendurch in eine andere Tour legen.
       const created: TourWithOrders[] = [];
       for (const p of planned) {
-        const orders = p.orders.map((o) => e.db.orders.find((x) => x.id === o.id)).filter((o): o is Order => !!o && isOpen(o));
+        const current = p.orders.map((o) => e.db.orders.find((x) => x.id === o.id));
+        const keep = current.map((o) => !!o && isOpen(o));
+        const orders = current.filter((o, i): o is Order => !!o && keep[i]);
         if (!orders.length) continue;
         let route = p.route;
-        if (orders.length !== p.orders.length) route = await computeRoute(e, orders.map((o) => orderPoint(o) as GeoPoint));
+        if (orders.length !== p.orders.length) {
+          // Route ohne Netzwerk kürzen (Abschnitte verbinden), notfalls Luftlinie
+          const points = [store, ...orders.map((o) => orderPoint(o) as GeoPoint), store];
+          route = pruneRoute(p.route, keep) ?? summarizeRoute(points.slice(1).map((pt, i) => straightLineLeg(points[i], pt)));
+        }
         const driver = e.db.drivers.find((d) => d.id === p.driverId);
         if (!driver) continue;
         const tour: Tour = {

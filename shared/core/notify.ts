@@ -72,17 +72,41 @@ export function emitOrder(e: Engine, order: Order, type: 'order.created' | 'orde
   e.emit({ type, order }, orderAudience(order));
 }
 
-export function tourAudience(e: Engine, tour: Tour): Audience {
+/** Vollständige Tour (Stopps, ETAs, Route mit allen Lieferadressen) nur an Markt und Fahrer */
+export function tourAudience(_e: Engine, tour: Tour): Audience {
+  return { admin: true, driverIds: [tour.driverId] };
+}
+
+/** Kunden mit einem Auftrag in der Tour */
+export function tourCustomerIds(e: Engine, tour: Tour): string[] {
   const customerIds = new Set<string>();
   for (const s of tour.stops) {
     const o = e.db.orders.find((x) => x.id === s.orderId);
     if (o) customerIds.add(o.customerId);
   }
-  return { admin: true, driverIds: [tour.driverId], customerIds: [...customerIds] };
+  return [...customerIds];
+}
+
+/**
+ * Tour ohne Daten anderer Kunden (keine Stopps, keine Route, keine Simulation) – für Kunden der Tour,
+ * damit deren Sendungsverfolgung neu lädt (getTracking liefert nur die eigenen Daten).
+ */
+export function customerTourView(tour: Tour): Tour {
+  return {
+    id: tour.id,
+    name: tour.name,
+    date: tour.date,
+    driverId: tour.driverId,
+    status: tour.status,
+    stops: [],
+    currentStopIndex: tour.currentStopIndex,
+  };
 }
 
 export function emitTour(e: Engine, tour: Tour): void {
   e.emit({ type: 'tour.updated', tour }, tourAudience(e, tour));
+  const customerIds = tourCustomerIds(e, tour);
+  if (customerIds.length) e.emit({ type: 'tour.updated', tour: customerTourView(tour) }, { customerIds });
 }
 
 export function emitDriver(e: Engine, driver: Driver): void {

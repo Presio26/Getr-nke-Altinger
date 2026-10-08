@@ -151,6 +151,16 @@ export function RealtimeBridge() {
     return realtime.subscribe(handle);
   }, [qc]);
 
+  // Die Einstellungen im Bootstrap hängen von der Rolle ab (nur der Markt erhält auch inaktive Gutscheine)
+  // → nach An-/Abmeldung bzw. Nutzerwechsel neu laden, sonst bearbeitet der Markt eine gefilterte Liste
+  const role = useSession((s) => s.user?.role ?? null);
+  const lastRole = useRef(role);
+  useEffect(() => {
+    if (lastRole.current === role) return;
+    lastRole.current = role;
+    void actions.current.reload().catch(() => undefined);
+  }, [role]);
+
   // Nach Verbindungsabbruch: verpasste Änderungen nachladen
   useEffect(() => {
     let wasOffline = false;

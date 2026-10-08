@@ -26,6 +26,7 @@ import type {
   Driver,
   DriverStatus,
   DriverToday,
+  EmptiesLine,
   FulfillmentType,
   GeoPositionInput,
   ID,
@@ -158,7 +159,11 @@ export interface Api {
 
   // ── Markt / Admin (Rolle admin) ─────────────────────────
   adminListOrders(query?: AdminOrderQuery): Promise<Order[]>;
-  adminUpdateOrderStatus(orderId: ID, status: OrderStatus, note?: string): Promise<Order>;
+  /**
+   * Statuswechsel durch den Markt. `emptiesCollected` (optional, bei 'picked_up'/'delivered'):
+   * tatsächlich angenommenes Leergut – sonst gilt die (geprüfte) Anmeldung der Bestellung.
+   */
+  adminUpdateOrderStatus(orderId: ID, status: OrderStatus, note?: string, emptiesCollected?: EmptiesLine[]): Promise<Order>;
   /** Abholcode oder QR-Inhalt prüfen → Bestellung */
   adminFindPickup(codeOrQr: string): Promise<Order>;
   adminListDrivers(): Promise<Driver[]>;
