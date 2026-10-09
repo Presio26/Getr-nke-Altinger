@@ -1,0 +1,15 @@
+node_modules
+dist
+dev-dist
+data/*.json
+!data/.gitkeep
+test-results
+playwright-report
+*.log
+.DS_Store
+.env
+.env.local
+
+# Server-Deployment (Hetzner): Zugangsdaten und Sicherungen nicht ins Repo
+deploy/hetzner/.env
+deploy/hetzner/backups/

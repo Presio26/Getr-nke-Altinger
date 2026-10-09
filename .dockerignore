@@ -1,0 +1,34 @@
+# Abhängigkeiten und Build-Ergebnisse werden im Image neu erzeugt
+node_modules
+dist
+dev-dist
+
+# Laufzeitdaten und Zertifikate nicht ins Image
+data
+certs
+*.pem
+.env
+.env.*
+
+# Test- und Werkzeugausgaben
+test-results
+playwright-report
+coverage
+*.log
+
+# Versionsverwaltung, Editor, System
+.git
+.github
+.vscode
+.idea
+.DS_Store
+
+# Deployment-Beschreibungen und Dokumentation werden im Image nicht gebraucht
+Dockerfile
+.dockerignore
+render.yaml
+docs
+*.md
+
+# Server-Deployment-Dateien (Compose, Caddy, Skripte)
+deploy

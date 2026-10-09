@@ -1,0 +1,18 @@
+# HTTPS-Zertifikat holt Caddy automatisch (Let's Encrypt), sobald DOMAIN per DNS auf den Server zeigt.
+# WebSockets (Echtzeit/socket.io) funktionieren ohne Zusatzkonfiguration.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# Demo nicht in Suchmaschinen (enthält Name und Marke des Markts)
+		X-Robots-Tag "noindex, nofollow"
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	reverse_proxy app:8787
+}

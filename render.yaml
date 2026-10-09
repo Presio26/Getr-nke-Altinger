@@ -1,0 +1,40 @@
+# Render Blueprint – Getränke Altinger (ein Web Service: Node-Server + gebaute Oberfläche, Echtzeit, HTTPS)
+#
+# Render → New → Blueprint → dieses Repository auswählen → Apply.
+# Die App ist danach unter https://<name>.onrender.com erreichbar. HTTPS stellt Render automatisch –
+# Voraussetzung für GPS (Fahrer-App) und Kamera (QR-Scan bei Abholungen) auf dem iPhone.
+# Anleitung inkl. „In 10 Minuten online für die Demo“: docs/DEPLOYMENT.md
+services:
+  - type: web
+    name: getraenke-altinger
+    runtime: node
+    # EU-Rechenzentrum (DSGVO)
+    region: frankfurt
+    # "free": schläft nach ca. 15 Minuten ohne Aufruf ein. Der erste Aufruf weckt den Server (Kaltstart bis ca. 1 Minute) –
+    # die App zeigt solange „Verbinde mit Server …“. Das Dateisystem ist flüchtig: nach Neustart/Deploy frische Demo-Daten.
+    # Für die Vorführwoche im Dashboard auf "starter" umstellen (kein Einschlafen) oder hier "starter" eintragen.
+    plan: free
+    # genau eine Instanz – Daten und Echtzeit-Verbindungen liegen im Speicher dieses Prozesses
+    numInstances: 1
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    # Render startet den Dienst erst nach erfolgreicher Antwort neu bzw. leitet Verkehr erst dann um
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Build-Zeit (Vite): Oberfläche und Server liegen zusammen → fest Server-Modus, nie ein stiller lokaler Modus.
+      # Ist der Server kurz weg (Kaltstart, Funkloch), wartet die App bzw. zeigt „Keine Verbindung“.
+      - key: VITE_API_MODE
+        value: remote
+      - key: DEMO_MODE
+        value: "true"
+      - key: RESEED_STALE
+        value: "true"
+      # NODE_ENV=production gilt auch beim Build – ohne diese Zeile würde "npm ci" die devDependencies
+      # (TypeScript, Vite, Tailwind) weglassen und "npm run build" schlüge fehl.
+      - key: NPM_CONFIG_INCLUDE
+        value: dev

@@ -1,0 +1,161 @@
+/**
+ * Sendungsverfolgung: Restroute bis zum Kunden und geschätzte Ankunft.
+ *
+ * Datenschutz (Kundensicht): Die Live-Position des Fahrers gibt es nur, solange der eigene Auftrag auf der
+ * aktiven Tour unterwegs ist (wie positionAudience). Die Restroute nur, wenn der Fahrer bereits auf dem
+ * Abschnitt zum eigenen Stopp ist – Abschnitte zu anderen Kunden würden deren Lieferadressen verraten.
+ */
+import type { LatLng, Order, TrackingInfo } from '../types';
+import type { Engine } from './engine';
+import { haversine, polylineLength, projectOnPolyline, sliceFrom, toLatLng } from './geo';
+import { FALLBACK_DETOUR_FACTOR, FALLBACK_SPEED_MS } from './routing';
+import { remainingLegCoords } from './simulator';
+import { estimateStopEtas, isStopDone, isStopOpen, orderPoint, remainingDwellMs, STOP_DWELL_MS, stopDwellMs } from './tourOps';
+
+/** Linienzüge aneinanderhängen (doppelte Verbindungspunkte entfernen) */
+function concat(parts: LatLng[][]): LatLng[] {
+  const out: LatLng[] = [];
+  for (const part of parts) {
+    for (const p of part) {
+      const prev = out[out.length - 1];
+      if (!prev || prev[0] !== p[0] || prev[1] !== p[1]) out.push(p);
+    }
+  }
+  return out;
+}
+
+const minutesCeil = (ms: number) => Math.max(1, Math.ceil(ms / 60_000));
+
+export interface TrackingOptions {
+  /** 'customer' (Default): nur eigene Daten; 'staff' (Markt/Fahrer): vollständige Restroute und Position */
+  viewer?: 'customer' | 'staff';
+}
+
+export function buildTracking(e: Engine, order: Order, now: Date, options: TrackingOptions = {}): TrackingInfo {
+  const staff = options.viewer === 'staff';
+  const s = e.db.settings;
+  const info: TrackingInfo = {
+    order,
+    store: { lat: s.location.lat, lng: s.location.lng, name: s.name, phone: s.phone },
+  };
+  const driver = order.driverId ? e.db.drivers.find((d) => d.id === order.driverId) : undefined;
+  const tour = order.tourId ? e.db.tours.find((t) => t.id === order.tourId) : undefined;
+  if (driver) {
+    const d: NonNullable<TrackingInfo['driver']> = {
+      id: driver.id,
+      name: driver.name,
+      phone: driver.phone,
+      vehicle: driver.vehicle,
+      color: driver.color,
+      status: driver.status,
+    };
+    // Kunden: nur während der eigene Auftrag auf der aktiven Tour dieses Fahrers unterwegs ist
+    const live = order.status === 'out_for_delivery' && tour?.status === 'active' && tour.driverId === driver.id;
+    if (driver.position && (staff || live)) d.position = driver.position;
+    info.driver = d;
+  }
+  if (!tour) return info;
+  const idx = tour.stops.findIndex((x) => x.orderId === order.id);
+  if (idx < 0) return info;
+  const stop = tour.stops[idx];
+  const stopsBefore = tour.stops.slice(0, idx).filter(isStopOpen).length;
+  const t: NonNullable<TrackingInfo['tour']> = {
+    id: tour.id,
+    status: tour.status,
+    stopIndex: idx,
+    currentStopIndex: tour.currentStopIndex,
+    stopsBefore,
+  };
+  info.tour = t;
+
+  const legs = tour.route?.legs ?? [];
+  const finished = isStopDone(stop) || ['delivered', 'picked_up', 'failed', 'cancelled'].includes(order.status);
+  if (finished || tour.status === 'completed') return info;
+
+  if (stop.status === 'arrived') {
+    info.etaMinutes = 0;
+    return info;
+  }
+
+  if (tour.status === 'planned') {
+    // Kunden: keine geplante Route (sie führt über die Adressen der Stopps davor)
+    if (staff && legs.length > idx) t.routeToCustomer = concat(legs.slice(0, idx + 1).map((l) => l.coords));
+    const eta = estimateStopEtas(e, tour, now)[idx];
+    if (eta !== undefined) info.etaMinutes = minutesCeil(eta - now.getTime());
+    return info;
+  }
+
+  // ── aktive Tour ──
+  const sim = tour.simulation;
+  const target = orderPoint(order);
+  // Simulationsfortschritt nur, solange die letzte Position simuliert ist (echtes GPS hat Vorrang)
+  const simulated = !!sim && (sim.running || driver?.position?.simulated === true);
+  if (sim && simulated && sim.legIndex <= idx) {
+    const factor = sim.running ? Math.max(0.1, sim.speedFactor) : 1;
+    const cur = legs[sim.legIndex];
+    const parts: LatLng[][] = [];
+    let remainingS = 0;
+    if (cur) {
+      const atStop = !!sim.dwellUntil && sim.legIndex < idx;
+      if (!atStop) {
+        parts.push(remainingLegCoords(cur, sim.progressM));
+        remainingS += cur.distance > 0 ? cur.duration * Math.max(0, 1 - sim.progressM / cur.distance) : 0;
+      } else {
+        parts.push([cur.coords[cur.coords.length - 1]]);
+      }
+    }
+    for (let i = sim.legIndex + 1; i <= idx && i < legs.length; i++) {
+      parts.push(legs[i].coords);
+      remainingS += legs[i].duration;
+    }
+    // Fahrer steht noch am aktuellen Stopp: Rest-Standzeit (manueller Stopp: bis er fertig ist)
+    let waitMs = 0;
+    const atStopNow = !!sim.dwellUntil && sim.legIndex < idx;
+    if (atStopNow) {
+      const here = tour.stops[sim.legIndex];
+      waitMs = here && isStopOpen(here) ? remainingDwellMs(tour, here, now) : Math.max(0, Date.parse(sim.dwellUntil!) - now.getTime());
+    }
+    if (staff || sim.legIndex === idx) t.routeToCustomer = concat(parts);
+    // geplante Standzeiten an den offenen Stopps davor
+    const extraDwell = tour.stops
+      .slice(sim.legIndex + (atStopNow ? 1 : 0), idx)
+      .filter((x) => isStopOpen(x))
+      .reduce((sum, x) => sum + (x.status === 'arrived' ? remainingDwellMs(tour, x, now) : stopDwellMs(tour, x.orderId)), 0);
+    info.etaMinutes = minutesCeil((remainingS * 1000) / factor + waitMs + extraDwell);
+    return info;
+  }
+
+  // echte GPS-Position (oder noch keine Position: ab Markt)
+  const k = Math.min(tour.currentStopIndex, legs.length - 1);
+  const pos = driver?.position ? ([driver.position.lat, driver.position.lng] as LatLng) : toLatLng(s.location);
+  const avgSpeed = tour.route && tour.route.duration > 0 ? tour.route.distance / tour.route.duration : FALLBACK_SPEED_MS;
+  let remainingM = 0;
+  const parts: LatLng[][] = [];
+  /** Route führt nur zum eigenen Stopp (keine Abschnitte zu anderen Kunden) */
+  let ownOnly = true;
+  if (k >= 0 && k <= idx && legs[k]) {
+    ownOnly = k === idx;
+    const leg = legs[k];
+    const len = polylineLength(leg.coords);
+    const { along } = projectOnPolyline(leg.coords, pos);
+    const rest = sliceFrom(leg.coords, along);
+    parts.push([pos, ...rest.slice(1)]);
+    remainingM += len > 0 ? (leg.distance * Math.max(0, len - along)) / len : 0;
+    for (let i = k + 1; i <= idx && i < legs.length; i++) {
+      parts.push(legs[i].coords);
+      remainingM += legs[i].distance;
+    }
+  } else if (target) {
+    parts.push([pos, toLatLng(target)]);
+    remainingM = haversine(pos, toLatLng(target)) * FALLBACK_DETOUR_FACTOR;
+  }
+  // Kunden: Restroute erst auf dem Abschnitt zum eigenen Stopp (bzw. Luftlinie ohne Route)
+  if (parts.length && (staff || ownOnly)) t.routeToCustomer = concat(parts);
+  // Standzeiten der offenen Stopps davor – am Stopp „vor Ort“ nur die Rest-Standzeit
+  const dwellBefore = tour.stops
+    .slice(0, idx)
+    .filter(isStopOpen)
+    .reduce((sum, x) => sum + (x.status === 'arrived' ? remainingDwellMs(tour, x, now) : STOP_DWELL_MS), 0);
+  info.etaMinutes = minutesCeil((remainingM / Math.max(1, avgSpeed)) * 1000 + dwellBefore);
+  return info;
+}
