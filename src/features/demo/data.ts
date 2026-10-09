@@ -304,7 +304,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       '„Leergut annehmen“ erfassen → „Abgeholt“',
     ],
     message: 'Click & Collect entzerrt den Samstag: Die Ware ist vorbereitet, an der Kasse geht es in Sekunden – Leergut inklusive.',
-    note: 'Kamera-Scan braucht HTTPS (z. B. Render) und die Kamerafreigabe im Browser – sonst den Code eintippen.',
+    note: 'Kamera-Scan braucht HTTPS (z. B. auf dem Hetzner-Server) und die Kamerafreigabe im Browser – sonst den Code eintippen.',
     links: [
       { label: 'Warenkorb (Anna)', to: '/warenkorb', as: 'u-anna' },
       { label: 'Abholungen (Markt)', to: '/admin/abholungen', as: 'u-admin' },

@@ -6,6 +6,9 @@ Die App besteht aus **einem Node-Prozess**: Er liefert die gebaute Oberfläche (
 Server und App liegen zusammen, die App schaltet nie still auf lokale Browser-Daten um. Nur für reines Static-Hosting
 gibt es den **lokalen Modus** (Daten im Browser, Abschnitt 4).
 
+> **Empfohlen: eigener Server bei Hetzner** – fertige Dateien in `deploy/hetzner/` (Docker Compose + Caddy mit
+> automatischem HTTPS, Installations-, Update- und Backup-Skript). Anleitung: [HETZNER.md](HETZNER.md).
+
 ---
 
 ## In 10 Minuten online für die Demo

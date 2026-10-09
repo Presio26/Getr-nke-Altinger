@@ -1,0 +1,54 @@
+# Getränke Altinger auf einem eigenen Server (z. B. Hetzner Cloud)
+#
+#   app    – Node-Server + gebaute Oberfläche (Dockerfile im Repo-Hauptverzeichnis)
+#   caddy  – HTTPS mit automatischem Let's-Encrypt-Zertifikat, leitet auf die App weiter
+#
+# Start:   cp .env.example .env  (DOMAIN + ACME_EMAIL eintragen)  →  docker compose up -d --build
+# Einfacher: ./install.sh  (siehe docs/HETZNER.md)
+
+name: altinger
+
+services:
+  app:
+    build:
+      context: ../..
+    image: getraenke-altinger:latest
+    restart: unless-stopped
+    environment:
+      DEMO_MODE: ${DEMO_MODE:-true}
+      RESEED_STALE: ${RESEED_STALE:-true}
+    volumes:
+      - altinger-data:/app/data
+    expose:
+      - "8787"
+    # Zeit zum Speichern der Daten beim Stoppen
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN in .env setzen, z. B. altinger-demo.presio.eu}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL in .env setzen}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  altinger-data:
+  caddy-data:
+  caddy-config:

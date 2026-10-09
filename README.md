@@ -309,14 +309,14 @@ Beim ersten Mal ggf. den Browser installieren: `npx playwright install chromium`
 
 | Ziel | Vorgehen | Ergebnis |
 |---|---|---|
-| **Render** (empfohlen für die Vorführung) | Repository verbinden → Blueprint `render.yaml` (baut mit `VITE_API_MODE=remote`, Health-Check `/api/health`) | HTTPS-Adresse, Echtzeit, GPS und Kamera auf dem iPhone |
+| **Hetzner-Server** (empfohlen) | Server mit Ubuntu anlegen, Domain darauf zeigen lassen, Repo klonen → `deploy/hetzner/install.sh` (Docker + Caddy) | feste HTTPS-Adresse in Deutschland, Echtzeit, GPS und Kamera auf dem iPhone, Daten bleiben erhalten |
+| Render | Repository verbinden → Blueprint `render.yaml` (baut mit `VITE_API_MODE=remote`, Health-Check `/api/health`) | HTTPS-Adresse ohne eigenen Server |
 | Railway / Fly.io | Dockerfile verwenden (ebenfalls `VITE_API_MODE=remote`, `HEALTHCHECK`) | wie Render |
-| Eigener Server | `docker build -t altinger .` → `docker run -p 8787:8787 -v altinger-data:/app/data altinger` | volle Kontrolle, Hosting in der EU |
+| Anderer eigener Server | `docker build -t altinger .` → `docker run -p 8787:8787 -v altinger-data:/app/data altinger` + Reverse-Proxy | volle Kontrolle |
 | Netlify / Vercel | Build mit `VITE_API_MODE=local`, Ordner `dist` | nur lokaler Modus, keine geräteübergreifende Echtzeit |
 | Lokales WLAN | `npm run build` + `HTTPS_CERT`/`HTTPS_KEY` (mkcert) + `npm start` | HTTPS im Messe-/Besprechungs-WLAN |
 
-Schritt-für-Schritt-Anleitungen inkl. **„In 10 Minuten online für die Demo“**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-Auf dem Free-Tarif schläft Render nach ca. 15 Minuten ein (Kaltstart bis ca. 1 Minute) – für die Vorführwoche Tarif Starter.
+Schritt-für-Schritt für Hetzner: [docs/HETZNER.md](docs/HETZNER.md). Alle weiteren Varianten: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -324,6 +324,7 @@ Auf dem Free-Tarif schläft Render nach ca. 15 Minuten ein (Kaltstart bis ca. 1 
 
 - [docs/KONZEPT.md](docs/KONZEPT.md) – Konzeptpapier für das Gespräch mit Getränke-Altinger
 - [docs/DEMO-DREHBUCH.md](docs/DEMO-DREHBUCH.md) – Ablauf der Vorführung mit Gerätezuordnung, exakten Beschriftungen, Zeitbedarf, Kernbotschaften und Plan B
+- [docs/HETZNER.md](docs/HETZNER.md) – eigener Server bei Hetzner mit Docker und automatischem HTTPS (empfohlen)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) – Bereitstellung (Render, Docker, Static-Hosting, HTTPS im WLAN)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) – Architektur und Regeln für die Entwicklung
 - [docs/FRONTEND-API.md](docs/FRONTEND-API.md) – Bausteine der Oberfläche

@@ -99,7 +99,7 @@ function GpsCard() {
   } else {
     notice = (
       <Notice tone="warning" icon={LockOpen} title="Ohne HTTPS kein GPS auf dem iPhone">
-        Nutzen Sie für die Vorführung die Fahrtsimulation oder ein HTTPS-Deployment (z. B. Render) bzw. ein mkcert-Zertifikat im WLAN.
+        Nutzen Sie für die Vorführung die Fahrtsimulation oder ein HTTPS-Deployment (z. B. eigener Hetzner-Server) bzw. ein mkcert-Zertifikat im WLAN.
       </Notice>
     );
   }
@@ -129,7 +129,7 @@ function GpsCard() {
 const DOCS: { file: string; title: string; text: string }[] = [
   { file: 'docs/KONZEPT.md', title: 'Konzeptpapier', text: 'Ausgangslage, Ziele, Nutzen, Datenschutz, Roadmap und offene Fragen' },
   { file: 'docs/DEMO-DREHBUCH.md', title: 'Demo-Drehbuch', text: 'Ablauf mit Geräten, exakten Beschriftungen, Zeitbedarf und Plan B' },
-  { file: 'docs/DEPLOYMENT.md', title: 'Deployment', text: 'In 10 Minuten online (Render), Docker, HTTPS im WLAN' },
+  { file: 'docs/DEPLOYMENT.md', title: 'Deployment', text: 'Hetzner-Server (docs/HETZNER.md), Docker, HTTPS im WLAN' },
   { file: 'README.md', title: 'README', text: 'Schnellstart, Demo-Zugänge, Konfiguration, Tests' },
 ];
 

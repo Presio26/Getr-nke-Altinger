@@ -46,11 +46,10 @@ das iPhone in die Hand zu geben.
 ## 2. Vorbereitung am Vortag
 
 **Bereitstellung**
-- [ ] App auf **Render** bereitgestellt (siehe [DEPLOYMENT.md](DEPLOYMENT.md), „In 10 Minuten online“), Adresse
-      notiert, z. B. `https://getraenke-altinger.onrender.com`
+- [ ] App auf dem **Hetzner-Server** bereitgestellt (siehe [HETZNER.md](HETZNER.md)), Adresse notiert,
+      z. B. `https://altinger-demo.presio.eu`
 - [ ] `https://<adresse>/api/health` liefert `"ok": true` und `"mode": "remote"`
-- [ ] Für die Vorführwoche Render-Tarif **Starter** (kein Einschlafen) – oder die App 10 Minuten vorher aufrufen
-      (Kaltstart: „Verbinde mit Server …“, bis zu einer Minute)
+- [ ] Am Vortag `./update.sh` auf dem Server ausführen, falls es neue Änderungen gibt
 - [ ] Leitfaden `/demo` öffnen: Kopfzeile „Server-Modus“, Schnellaktion „Betriebsmodus“ zeigt „Server“ und „Echtzeit verbunden“
 
 **Daten**
@@ -305,10 +304,10 @@ Dann: offene Fragen aus [KONZEPT.md](KONZEPT.md), Abschnitt 11 (Öffnungszeiten,
 | **Keine echte Fahrt möglich / Wetter / Zeit** | Schnellaktion „Fahrt simulieren“ im Leitfaden (Marktleitung oder Toni): „8×“ oder „15×“, „Stopps automatisch zustellen“ an, „Annas Stopp selbst zustellen“ an. Alternativ Markt: „Live-Karte“ → „Demo-Simulation“ bzw. „Touren“ → „Simulation starten“. |
 | **GPS wird nicht freigegeben** (kein HTTPS, Standort verweigert) | Simulation verwenden – sie ersetzt die GPS-Position vollständig. |
 | **Kamera-Scan klappt nicht** | Abholcode eintippen → „Prüfen“ – gleiches Ergebnis. |
-| **Render schläft noch / lädt langsam** | Die App zeigt „Verbinde mit Server …“ und wartet bis zu einer Minute. Für die Vorführwoche Tarif Starter. |
+| **Server antwortet nicht / lädt langsam** | Die App zeigt „Verbinde mit Server …“ und versucht es bis zu einer Minute. Auf dem Server `docker compose ps` bzw. `docker compose restart app` (siehe [HETZNER.md](HETZNER.md)). |
 | **Verbindung bricht kurz ab** | Oben erscheint „Keine Verbindung zum Server – wird automatisch erneut versucht“; die App verbindet sich selbst neu und lädt verpasste Änderungen nach. Es wird nie still auf lokale Daten umgeschaltet. |
 | **Kein Internet** | ① Hotspot vom iPhone. ② **Laptop als Server** (vorher getestet): `npm run build && npm start` → `http://localhost:8787/demo`; iPhones im Laptop-Hotspot mit `http://<Laptop-IP>:8787` (Adresse beim Start „Im WLAN“; QR-Adresse im Leitfaden mit „Adresse ändern“ anpassen). Ohne HTTPS kein GPS und keine Kamera → Simulation und Code-Eingabe. Kartenkacheln nur, soweit zwischengespeichert. |
-| **Nur ein Gerät, kein Server** | **Offline-Demo** auf dem Laptop: lokaler Build ohne festen Modus (`npm run build && npm start`), dann `http://localhost:8787/demo?api=local` – alle Rollen laufen im Browser, Tabs für Anna, Toni und Markt gleichen sich live ab. (Auf Render ist der Modus fest `remote` – dort gibt es bewusst keinen lokalen Modus.) |
+| **Nur ein Gerät, kein Server** | **Offline-Demo** auf dem Laptop: lokaler Build ohne festen Modus (`npm run build && npm start`), dann `http://localhost:8787/demo?api=local` – alle Rollen laufen im Browser, Tabs für Anna, Toni und Markt gleichen sich live ab. (Auf dem Server ist der Modus fest `remote` – dort gibt es bewusst keinen lokalen Modus.) |
 | **Daten durcheinander** | Leitfaden → „Demo-Daten zurücksetzen“ – alle Geräte zeigen nach wenigen Sekunden den Ausgangsstand. |
 | **iPhone abgemeldet / falsche Rolle** | QR-Code im Leitfaden auf dem Beamer scannen oder dreimal aufs Logo tippen → Demo-Umschalter. |
 | **Ein Schritt funktioniert nicht** | Überspringen, im Leitfaden den nächsten Direkt-Link nutzen. Notfalls **Screenshots** zeigen. |

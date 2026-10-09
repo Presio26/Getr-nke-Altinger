@@ -9,3 +9,7 @@ playwright-report
 .DS_Store
 .env
 .env.local
+
+# Server-Deployment (Hetzner): Zugangsdaten und Sicherungen nicht ins Repo
+deploy/hetzner/.env
+deploy/hetzner/backups/
